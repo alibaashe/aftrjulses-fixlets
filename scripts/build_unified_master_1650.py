@@ -289,12 +289,33 @@ CATEGORY_CANONICAL = {
         "generalCategory": "Transport",
         "somaliLabel": "Istaannada & Gaadiidka"
     },
+    "Road Corridor": {
+        "category": "Roads & Arterials",
+        "subCategory": "arterial_road",
+        "iconName": "Navigation",
+        "generalCategory": "Road Network",
+        "somaliLabel": "Waddooyinka & Jidadka"
+    },
     "Hotel/Hospitality": {
         "category": "Hotels & Hospitality",
         "subCategory": "hotel",
         "iconName": "Hotel",
         "generalCategory": "Hotels & Lodging",
-        "somaliLabel": "Huteellada & Maqaayadaha"
+        "somaliLabel": "Huteellada & Martida"
+    },
+    "Restaurant/Cafe": {
+        "category": "Restaurants & Cafes",
+        "subCategory": "restaurant",
+        "iconName": "Utensils",
+        "generalCategory": "Dining & Coffee",
+        "somaliLabel": "Maqaayadaha & Kafateeriyada"
+    },
+    "NGO/Humanitarian": {
+        "category": "NGOs & Humanitarian",
+        "subCategory": "ngo",
+        "iconName": "Globe",
+        "generalCategory": "NGOs & Non-Profits",
+        "somaliLabel": "Hay'adaha Samafalka (NGOs)"
     },
     "Bank/Finance": {
         "category": "Banks & Financial",
@@ -455,7 +476,33 @@ EXPANSION_TEMPLATES = [
         "raw_cat": "Public Governance"
     },
 
-    # 11. Residential Neighborhood Block
+    # 11. Restaurants & Cafes
+    {
+        "name_prefix": "Maqaayadda Cuntada Hiddaha & Dhaqanka ee",
+        "desc_suffix": "Traditional Somali dishes and family restaurant in",
+        "raw_cat": "Restaurant/Cafe"
+    },
+    {
+        "name_prefix": "Kafateeriyada & Qahwada Casriga ah ee",
+        "desc_suffix": "Modern coffee house and light dining lounge in",
+        "raw_cat": "Restaurant/Cafe"
+    },
+
+    # 12. NGOs & Humanitarian Organizations
+    {
+        "name_prefix": "Xarunta NGO-yada iyo Samafalka ee",
+        "desc_suffix": "Non-governmental development agency & aid office in",
+        "raw_cat": "NGO/Humanitarian"
+    },
+
+    # 13. Road Networks & Arterials
+    {
+        "name_prefix": "Jidka iyo Wadada Weyn ee",
+        "desc_suffix": "Major paved road corridor and arterial avenue in",
+        "raw_cat": "Road Corridor"
+    },
+
+    # 14. Residential Neighborhood Block
     {
         "name_prefix": "Xaafada Deganaanshaha ee",
         "desc_suffix": "Quiet residential enclave and community living sector in",
@@ -725,5 +772,5 @@ export function searchHargeisaPlaces(query: string, categoryFilter?: string): Ha
     print(f"✓ Saved TypeScript master places dataset to {ts_path}")
 
 if __name__ == '__main__':
-    nodes = build_master_database(1650)
+    nodes = build_master_database(2500)
     export_all(nodes)
