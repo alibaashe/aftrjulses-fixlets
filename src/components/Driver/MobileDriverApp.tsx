@@ -220,7 +220,8 @@ export const MobileDriverApp: React.FC = () => {
       navigator.serviceWorker.addEventListener('message', handleSwMsg);
       return () => navigator.serviceWorker.removeEventListener('message', handleSwMsg);
     }
-  }, [recalibrateDriverGps, toggleDriverOnline, updateDriverLiveCoordinates]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Keep screen wake lock active while driver is online waiting for orders
   useEffect(() => {

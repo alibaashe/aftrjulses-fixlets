@@ -220,14 +220,14 @@ const MainAppContent: React.FC = () => {
 
   // Sync role whenever currentView changes
   useEffect(() => {
-    if (currentView === 'rider') {
+    if (currentView === 'rider' && role !== 'passenger') {
       setRole('passenger');
-    } else if (currentView === 'driver') {
+    } else if (currentView === 'driver' && role !== 'driver') {
       setRole('driver');
-    } else if (currentView === 'admin') {
+    } else if (currentView === 'admin' && role !== 'admin') {
       setRole('admin');
     }
-  }, [currentView, setRole]);
+  }, [currentView, role, setRole]);
 
   // 1. WELCOME WEBSITE (www.wadaage.com)
   if (currentView === 'website') {

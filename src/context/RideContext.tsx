@@ -449,16 +449,19 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const setRole = useCallback((newRole: UserRole) => {
-    setRoleState(newRole);
-    const existingUser = getStoredUserForRole(newRole);
-    if (existingUser) {
-      setCurrentUser(existingUser);
-      setIsAuthenticated(true);
-    } else {
-      // Must prompt for login screen if no authenticated user for this role
-      setCurrentUser(null);
-      setIsAuthenticated(false);
-    }
+    setRoleState((prevRole) => {
+      if (prevRole === newRole) return prevRole;
+      const existingUser = getStoredUserForRole(newRole);
+      if (existingUser) {
+        setCurrentUser(existingUser);
+        setIsAuthenticated(true);
+      } else {
+        // Must prompt for login screen if no authenticated user for this role
+        setCurrentUser(null);
+        setIsAuthenticated(false);
+      }
+      return newRole;
+    });
   }, []);
 
   const login = (user: AuthUser) => {
@@ -876,8 +879,8 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (err) => {
           console.warn('Driver GPS recalibrate fallback:', err.message);
           updateDriverLiveCoordinates(
-            driverGpsStatus.lat || 9.5600,
-            driverGpsStatus.lng || 44.0650,
+            9.5600,
+            44.0650,
             15,
             0,
             0,
@@ -888,7 +891,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
       );
     });
-  }, [driverGpsStatus.lat, driverGpsStatus.lng, updateDriverLiveCoordinates]);
+  }, [updateDriverLiveCoordinates]);
 
   // Toggle Driver Live Real Location Tracking
   const toggleDriverLiveGps = useCallback((enable?: boolean) => {
@@ -5373,7 +5376,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Toggle Driver Online State with Threshold Rule
-  const toggleDriverOnline = (online?: boolean | any): boolean => {
+  const toggleDriverOnline = useCallback((online?: boolean | any): boolean => {
     const minThreshold = pricing.driverMinWalletThresholdUsd || 0.10;
     const isGoingOnline = typeof online === 'boolean' ? online : !driverModeOnline;
 
@@ -5418,7 +5421,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       notificationService.stopEmergencyOrderRingtone();
     }
     return true;
-  };
+  }, [pricing.driverMinWalletThresholdUsd, driverModeOnline, currentUser?.id, currentUser?.phone, currentUser?.name, getDriverWalletBalance, driverGpsStatus.lat, driverGpsStatus.lng]);
 
   // Manual Dispatch by Admin
   const dispatchDriverToRide = (rideId: string, driverId: string) => {
