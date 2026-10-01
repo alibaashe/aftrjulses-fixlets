@@ -405,47 +405,30 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
     activeRide?.status === 'driver_arrived' ||
     activeRide?.status === 'in_progress';
 
-  // Smooth Driver Tracing Animation when Ride is Active
+  // Real Driver Location Tracking (Strict Real-Time GPS, No Fake Drift)
+  const prevDriverPosRef = useRef<{ lat: number; lng: number } | null>(null);
+
   useEffect(() => {
-    if (!assignedDriver) {
+    if (!assignedDriver || !assignedDriver.currentLocation) {
       setLiveDriverPos(null);
       return;
     }
 
-    const startLat = assignedDriver.currentLocation?.lat ?? 9.5600;
-    const startLng = assignedDriver.currentLocation?.lng ?? 44.0650;
+    const realLat = assignedDriver.currentLocation.lat;
+    const realLng = assignedDriver.currentLocation.lng;
 
-    let currentLat = startLat;
-    let currentLng = startLng;
-    let heading = 45;
-
-    setLiveDriverPos({ lat: currentLat, lng: currentLng, heading });
-
-    if (!isDriverEnRoute || !pickupLocation) return;
-
-    const targetLat = currentRide?.status === 'in_progress' && dropoffLocation
-      ? dropoffLocation.lat
-      : pickupLocation.lat;
-    const targetLng = currentRide?.status === 'in_progress' && dropoffLocation
-      ? dropoffLocation.lng
-      : pickupLocation.lng;
-
-    const interval = setInterval(() => {
-      const dLat = targetLat - currentLat;
-      const dLng = targetLng - currentLng;
-      const dist = Math.hypot(dLat, dLng);
-
-      if (dist > 0.0002) {
-        const step = 0.00012;
-        currentLat += (dLat / dist) * step;
-        currentLng += (dLng / dist) * step;
-        heading = (Math.atan2(dLng, dLat) * 180) / Math.PI;
-        setLiveDriverPos({ lat: currentLat, lng: currentLng, heading });
+    let heading = (assignedDriver as any).heading || 0;
+    if (prevDriverPosRef.current) {
+      const pLat = prevDriverPosRef.current.lat;
+      const pLng = prevDriverPosRef.current.lng;
+      if (Math.hypot(realLat - pLat, realLng - pLng) > 0.00001) {
+        heading = (Math.atan2(realLng - pLng, realLat - pLat) * 180) / Math.PI;
       }
-    }, 1000);
+    }
+    prevDriverPosRef.current = { lat: realLat, lng: realLng };
 
-    return () => clearInterval(interval);
-  }, [assignedDriver?.id, isDriverEnRoute, pickupLocation?.lat, pickupLocation?.lng, dropoffLocation?.lat, dropoffLocation?.lng, currentRide?.status]);
+    setLiveDriverPos({ lat: realLat, lng: realLng, heading });
+  }, [assignedDriver?.currentLocation?.lat, assignedDriver?.currentLocation?.lng, (assignedDriver as any)?.heading]);
 
   const handleSetLocation = useCallback((type: 'pickup' | 'dropoff', lat: number, lng: number) => {
     const nearestInfo = findNearestHargeisaPlace(lat, lng);
