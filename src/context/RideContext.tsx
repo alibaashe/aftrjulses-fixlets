@@ -374,8 +374,43 @@ const RideContext = createContext<RideContextType | undefined>(undefined);
 export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isBookingRideRef = useRef<boolean>(false);
   const isActionPendingRef = useRef<boolean>(false);
-  const cancelledRideIdsRef = useRef<Set<string>>(new Set<string>());
-  const dismissedRideIdsRef = useRef<Set<string>>(new Set<string>());
+  const cancelledRideIdsRef = useRef<Set<string>>(
+    (() => {
+      try {
+        const saved = localStorage.getItem('wadaage_cancelled_ride_ids');
+        return new Set<string>(saved ? JSON.parse(saved) : []);
+      } catch {
+        return new Set<string>();
+      }
+    })()
+  );
+  const dismissedRideIdsRef = useRef<Set<string>>(
+    (() => {
+      try {
+        const saved = localStorage.getItem('wadaage_dismissed_ride_ids');
+        return new Set<string>(saved ? JSON.parse(saved) : []);
+      } catch {
+        return new Set<string>();
+      }
+    })()
+  );
+
+  const markRideAsDismissed = useCallback((rideId: string) => {
+    if (!rideId) return;
+    dismissedRideIdsRef.current.add(rideId);
+    try {
+      localStorage.setItem('wadaage_dismissed_ride_ids', JSON.stringify(Array.from(dismissedRideIdsRef.current).slice(-200)));
+    } catch {}
+  }, []);
+
+  const markRideAsCancelled = useCallback((rideId: string) => {
+    if (!rideId) return;
+    cancelledRideIdsRef.current.add(rideId);
+    try {
+      localStorage.setItem('wadaage_cancelled_ride_ids', JSON.stringify(Array.from(cancelledRideIdsRef.current).slice(-200)));
+    } catch {}
+  }, []);
+
   const chargedRideIdsRef = useRef<Set<string>>(
     (() => {
       try {
@@ -1990,6 +2025,8 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const myAssignedRide = sortedRides.find(
             (r) =>
               isMyDriverRide(r) &&
+              !cancelledRideIdsRef.current.has(r.id) &&
+              !dismissedRideIdsRef.current.has(r.id) &&
               (r.status === 'accepted' ||
                 r.status === 'driver_arrived' ||
                 r.status === 'in_progress')
@@ -2345,16 +2382,22 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
             sounds.playCompletedSound();
           }
         } else if (role === 'driver' && (isMyDriverRide(payload) || currentRide?.id === payload.id)) {
-          setCurrentRide(updateRideWithRank);
           if (payload.status === 'completed') {
+            markRideAsDismissed(payload.id);
+            try { localStorage.removeItem('wadaage_current_ride'); } catch {}
             sounds.playCompletedSound();
+            setTimeout(() => {
+              setCurrentRide((prev) => (prev && prev.id === payload.id ? null : prev));
+            }, 1200);
+          } else {
+            setCurrentRide(updateRideWithRank);
           }
         } else if (role === 'admin') {
           setCurrentRide((curr) => (curr?.id === payload.id ? payload : curr));
         }
       } else if (type === 'RIDE_CANCELLED') {
         if (payload?.id) {
-          cancelledRideIdsRef.current.add(payload.id);
+          markRideAsCancelled(payload.id);
           setAllPlatformRides((prev) => prev.map((r) => (r.id === payload.id ? { ...r, ...payload, status: 'cancelled' } : r)));
         }
         if (currentRide?.id === payload?.id) {
@@ -2367,7 +2410,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (type === 'RIDE_RATING_SUBMITTED') {
         const rId = payload?.rideId || payload?.id;
         if (rId) {
-          dismissedRideIdsRef.current.add(rId);
+          markRideAsDismissed(rId);
         }
         if (currentRide?.id === rId) {
           setCurrentRide(null);
@@ -3628,6 +3671,9 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       baseFare: 1.0,
       distanceKm: 4.5,
       durationMins: 12,
+      surgeMultiplier: 1.0,
+      discountAmount: 0,
+      isShared: false,
       totalFare: fare,
       paymentMethod: passengerData.paymentMethod || 'cash',
       status: 'in_progress',
@@ -3678,7 +3724,8 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentRide) return;
 
     // Strict Category Guard: Normal Taxi orders are private and CANNOT be stacked
-    if (currentRide.category !== 'wadaage_share' || !currentRide.isShared) {
+    const isWadaageCurrent = currentRide.category === 'wadaage_share' || currentRide.service_type === 'Wadaage' || currentRide.isShared;
+    if (!isWadaageCurrent) {
       console.warn('Cannot stack onto a private normal taxi order.');
       return;
     }
@@ -3708,7 +3755,8 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // Ensure incoming rider is also Wadaage Share
-    if (realData.category && realData.category !== 'wadaage_share') {
+    const isWadaageIncoming = realData.category === 'wadaage_share' || realData.service_type === 'Wadaage' || realData.isShared || !realData.category;
+    if (!isWadaageIncoming) {
       console.warn('Cannot stack a non-share order into Wadaage Share.');
       return;
     }
@@ -3938,7 +3986,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const cancelRide = () => {
     if (currentRide) {
       const rideId = currentRide.id;
-      cancelledRideIdsRef.current.add(rideId);
+      markRideAsCancelled(rideId);
       const cancelledRide: RideRequest = {
         ...currentRide,
         status: 'cancelled',
@@ -4396,17 +4444,17 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentRide.id !== incomingDriverRequest.id &&
       (currentRide.status === 'accepted' || currentRide.status === 'driver_arrived' || currentRide.status === 'in_progress')
     ) {
-      const isCurrentRideShare = currentRide.category === 'wadaage_share' && currentRide.isShared;
-      const isIncomingShare = incomingDriverRequest.category === 'wadaage_share' || incomingDriverRequest.isShared;
+      const isCurrentRideShare = currentRide.category === 'wadaage_share' || currentRide.service_type === 'Wadaage' || currentRide.isShared;
+      const isIncomingShare = incomingDriverRequest.category === 'wadaage_share' || incomingDriverRequest.service_type === 'Wadaage' || incomingDriverRequest.isShared;
 
       if (isCurrentRideShare && isIncomingShare) {
         stackPassengerToActiveRide(incomingDriverRequest);
         setIncomingDriverRequest(null);
-        return;
+        return { success: true, message: 'Second passenger accepted and matched on route!' };
       } else {
         console.warn('Standard Taxi orders are private 1-person rides and cannot accept co-riders.');
         setIncomingDriverRequest(null);
-        return;
+        return { success: false, message: 'Private taxi orders cannot accept co-riders.' };
       }
     }
 
@@ -4914,7 +4962,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isRiderBDone) {
           updatedRide.status = 'completed';
           updatedRide.completedAt = new Date().toLocaleTimeString();
-          dismissedRideIdsRef.current.add(updatedRide.id);
+          markRideAsDismissed(updatedRide.id);
           sounds.playCompletedSound();
           handleTripCommissionAndEarnings(updatedRide);
           setTimeout(() => {
@@ -4997,7 +5045,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isRiderADone) {
           updatedRide.status = 'completed';
           updatedRide.completedAt = new Date().toLocaleTimeString();
-          dismissedRideIdsRef.current.add(updatedRide.id);
+          markRideAsDismissed(updatedRide.id);
           sounds.playCompletedSound();
           handleTripCommissionAndEarnings(updatedRide);
           setTimeout(() => {
@@ -5174,7 +5222,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         completedAt: new Date().toLocaleTimeString(),
         optimalWaypointsSequence: updatedWaypoints || currentRide.optimalWaypointsSequence,
       };
-      dismissedRideIdsRef.current.add(completedRide.id);
+      markRideAsDismissed(completedRide.id);
       setCurrentRide(completedRide);
       setAllPlatformRides((prev) => {
         const filtered = prev.filter((r) => r.id !== completedRide.id);
@@ -5202,7 +5250,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'completed',
       completedAt: new Date().toLocaleTimeString(),
     };
-    dismissedRideIdsRef.current.add(completedRide.id);
+    markRideAsDismissed(completedRide.id);
     setCurrentRide(completedRide);
     setAllPlatformRides((prev) => {
       const filtered = prev.filter((r) => r.id !== completedRide.id);
@@ -5224,7 +5272,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const rateAndTipRide = (rating: number, tip: number) => {
     if (currentRide) {
       const rideId = currentRide.id;
-      dismissedRideIdsRef.current.add(rideId);
+      markRideAsDismissed(rideId);
       if (tip > 0) {
         const targetPassengerId = currentRide.passengerId || currentUser?.id || 'passenger_default';
         setUserWallets((prev) => {

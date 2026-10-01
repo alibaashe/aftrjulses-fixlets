@@ -1617,7 +1617,11 @@ Return ONLY valid JSON matching this schema:
   // Query single active trip for persistence when app is reopened/launched
   app.get('/api/rides/active-trip', (req, res) => {
     const { userId, phone, role } = req.query as { userId?: string; phone?: string; role?: string };
-    const activeStatuses = ['searching', 'accepted', 'driver_arrived', 'in_progress'];
+    const cleanPhone = phone ? String(phone).replace(/\D/g, '') : '';
+    const cleanUserId = userId ? String(userId).replace(/\D/g, '') : '';
+    const activeStatuses = role === 'driver'
+      ? ['accepted', 'driver_arrived', 'in_progress']
+      : ['searching', 'accepted', 'driver_arrived', 'in_progress'];
     const allActive = Object.values(activeServerRides);
 
     let found: any = null;
@@ -1625,15 +1629,20 @@ Return ONLY valid JSON matching this schema:
       found = allActive.find((r: any) => {
         if (!activeStatuses.includes(r.status)) return false;
         if (role === 'driver') {
+          const rDriverPhone = r.driverPhone || r.driver_phone || '';
+          const cleanRDPhone = rDriverPhone ? String(rDriverPhone).replace(/\D/g, '') : '';
           return (
             (userId && (r.assignedDriverId === userId || r.assignedDriverId === `drv_${userId}` || userId === `drv_${r.assignedDriverId}`)) ||
             (phone && (r.driverPhone === phone || r.driver_phone === phone)) ||
-            (r.assignedDriverId && ['drv_01', 'live_driver'].includes(r.assignedDriverId))
+            (cleanPhone && cleanRDPhone && (cleanPhone === cleanRDPhone || cleanRDPhone.endsWith(cleanPhone) || cleanPhone.endsWith(cleanRDPhone)))
           );
         } else {
+          const rPassPhone = r.passengerPhone || r.passenger_phone || '';
+          const cleanRPPhone = rPassPhone ? String(rPassPhone).replace(/\D/g, '') : '';
           return (
-            (userId && r.passengerId === userId) ||
-            (phone && (r.passengerPhone === phone || r.passenger_phone === phone))
+            (userId && (r.passengerId === userId || r.passenger_id === userId)) ||
+            (phone && (r.passengerPhone === phone || r.passenger_phone === phone)) ||
+            (cleanPhone && cleanRPPhone && (cleanPhone === cleanRPPhone || cleanRPPhone.endsWith(cleanPhone) || cleanPhone.endsWith(cleanRPPhone)))
           );
         }
       });
@@ -1643,14 +1652,20 @@ Return ONLY valid JSON matching this schema:
       found = dbService.store.rides.find((r: any) => {
         if (!activeStatuses.includes(r.status)) return false;
         if (role === 'driver') {
+          const rDriverPhone = r.driverPhone || r.driver_phone || '';
+          const cleanRDPhone = rDriverPhone ? String(rDriverPhone).replace(/\D/g, '') : '';
           return (
             (userId && (r.assignedDriverId === userId || r.assignedDriverId === `drv_${userId}`)) ||
-            (phone && (r.driverPhone === phone || r.driver_phone === phone))
+            (phone && (r.driverPhone === phone || r.driver_phone === phone)) ||
+            (cleanPhone && cleanRDPhone && (cleanPhone === cleanRDPhone || cleanRDPhone.endsWith(cleanPhone) || cleanPhone.endsWith(cleanRDPhone)))
           );
         } else {
+          const rPassPhone = r.passengerPhone || r.passenger_phone || '';
+          const cleanRPPhone = rPassPhone ? String(rPassPhone).replace(/\D/g, '') : '';
           return (
-            (userId && r.passengerId === userId) ||
-            (phone && (r.passengerPhone === phone || r.passenger_phone === phone))
+            (userId && (r.passengerId === userId || r.passenger_id === userId)) ||
+            (phone && (r.passengerPhone === phone || r.passenger_phone === phone)) ||
+            (cleanPhone && cleanRPPhone && (cleanPhone === cleanRPPhone || cleanRPPhone.endsWith(cleanPhone) || cleanPhone.endsWith(cleanRPPhone)))
           );
         }
       });
@@ -2042,6 +2057,15 @@ Return ONLY valid JSON matching this schema:
       existing.status = 'completed';
       existing.completedAt = new Date().toLocaleTimeString();
       existing.serverUpdatedAt = Date.now();
+    }
+
+    // Also update matching ride in relational memory store
+    const rideInStore = dbService.store.rides.find((r: any) => r.id === rideId);
+    if (rideInStore) {
+      rideInStore.status = 'completed';
+      rideInStore.completedAt = new Date().toLocaleTimeString();
+      rideInStore.serverUpdatedAt = Date.now();
+      dbService.syncRideToMySQL(rideInStore).catch(() => {});
     }
 
     lastServerRideUpdate = Date.now();
