@@ -772,5 +772,5 @@ export function searchHargeisaPlaces(query: string, categoryFilter?: string): Ha
     print(f"✓ Saved TypeScript master places dataset to {ts_path}")
 
 if __name__ == '__main__':
-    nodes = build_master_database(2500)
+    nodes = build_master_database(8650)
     export_all(nodes)
