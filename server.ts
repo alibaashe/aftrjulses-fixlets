@@ -2613,7 +2613,7 @@ Return ONLY valid JSON matching this schema:
     if (digits.startsWith('0')) digits = digits.slice(1);
     const cleanPhone = digits.startsWith('252') ? digits : `252${digits}`;
 
-    const code = Math.floor(1000 + Math.random() * 9000).toString(); // 4-digit or 6-digit OTP
+    const code = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit WhatsApp OTP
     const ttlSeconds = 120; // Absolute 2-minute expiration timeout guard
     const expiresAt = Date.now() + ttlSeconds * 1000;
 
@@ -2652,7 +2652,7 @@ Return ONLY valid JSON matching this schema:
 
     return res.json({
       success: true,
-      message: `Koodka xaqiijinta 4-god ah waxa loo diray WhatsApp lambarkaaga (+${cleanPhone}). Fadlan hubi WhatsApp-kaaga.`,
+      message: `Koodka xaqiijinta 6-god ah waxa loo diray WhatsApp lambarkaaga (+${cleanPhone}). Fadlan hubi WhatsApp-kaaga.`,
       phone: cleanPhone,
       otpCode: code,
       expiresInSeconds: ttlSeconds,

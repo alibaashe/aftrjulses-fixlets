@@ -179,8 +179,8 @@ export const LoginScreen: React.FC = () => {
     e.preventDefault();
     setFormError(null);
 
-    if (!otpInput.trim() || otpInput.trim().length < 4) {
-      setFormError(language === 'so' ? 'Fadlan geli koodka xaqiijinta (OTP)' : 'Please enter the verification OTP code');
+    if (!otpInput.trim() || otpInput.trim().length < 6) {
+      setFormError('Fadlan geli koodka xaqiijinta oo 6-god ah (Enter valid 6-digit WhatsApp OTP code)');
       return;
     }
 
@@ -918,7 +918,7 @@ export const LoginScreen: React.FC = () => {
               </div>
               <h3 className="text-lg font-black text-white">Xaqiijinta WhatsApp-ka (WhatsApp OTP)</h3>
               <p className="text-xs text-emerald-200">
-                Koodka xaqiijinta 4-god ah waxaa loo diray WhatsApp lambarkaaga{' '}
+                Koodka xaqiijinta 6-god ah waxaa loo diray WhatsApp lambarkaaga{' '}
                 <span className="font-mono font-bold text-[#00E575]">
                   {pendingRegistrationData?.phone || getFullPhone()}
                 </span>
