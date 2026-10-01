@@ -772,14 +772,19 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const driverPhone = currentUser?.phone || '';
 
     // 1. Synchronize Driver array state
+    const curWalletBal = getDriverWalletBalance(driverId) || (driverPhone ? getDriverWalletBalance(driverPhone) : undefined);
+
     setDrivers((prev) => {
       const idx = prev.findIndex((d) => d.id === driverId || (driverPhone && d.phone === driverPhone));
       if (idx >= 0) {
         const updated = [...prev];
+        const effectiveBal = curWalletBal !== undefined ? curWalletBal : updated[idx].walletBalanceUsd;
         updated[idx] = {
           ...updated[idx],
           currentLocation: { lat: latFixed, lng: lngFixed },
           status: driverModeOnline ? 'available' : 'offline',
+          walletBalanceUsd: effectiveBal,
+          wallet_balance_usd: effectiveBal,
         };
         try {
           saveDriverToFirestore(updated[idx]);
@@ -787,6 +792,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch {}
         return updated;
       } else {
+        const initialBal = curWalletBal !== undefined ? curWalletBal : 0;
         const newDriver: Driver = {
           id: driverId,
           name: driverName,
@@ -811,6 +817,8 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
           hoursOnline: 1,
           acceptanceRate: 100,
           service_type: 'Both',
+          walletBalanceUsd: initialBal,
+          wallet_balance_usd: initialBal,
         };
         try {
           saveDriverToFirestore(newDriver);
@@ -1907,12 +1915,13 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return hasChanged ? merged : prev;
         });
 
-        // Also update driverWallets if remoteDrivers have valid balance
+        // Also update driverWallets only for newly discovered drivers not yet in local map
         remoteDrivers.forEach((rd) => {
           if (rd.walletBalanceUsd !== undefined) {
             const safeB = Number(rd.walletBalanceUsd);
             setDriverWallets((prev) => {
-              if (rd.id && prev[rd.id] === safeB && rd.phone && prev[rd.phone] === safeB) return prev;
+              if (rd.id && prev[rd.id] !== undefined) return prev;
+              if (rd.phone && prev[rd.phone] !== undefined) return prev;
               const next = { ...prev };
               if (rd.id) next[rd.id] = safeB;
               if (rd.phone) next[rd.phone] = safeB;
@@ -2929,10 +2938,12 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return updated;
     });
 
-    // 2. Mutate drivers array
+    // 2. Mutate drivers array and persist to storage
     const minThresholdUsd = pricing?.driverMinWalletThresholdUsd || 0.10;
-    setDrivers((prev) =>
-      prev.map((d) => {
+    let targetDriverObjForSync: Driver | null = null;
+
+    setDrivers((prev) => {
+      const updatedDrivers = prev.map((d) => {
         const dClean = d.phone ? d.phone.replace(/\D/g, '') : '';
         const matches =
           d.id === actualId ||
@@ -2943,18 +2954,56 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (matches) {
           const isEligible = newBalUsd >= minThresholdUsd && newBalUsd > 0;
-          return {
+          const updatedD: Driver = {
             ...d,
             walletBalanceUsd: newBalUsd,
             wallet_balance_usd: newBalUsd,
             status: isEligible ? (d.status === 'offline' ? 'offline' : 'available') : 'offline',
           };
+          targetDriverObjForSync = updatedD;
+          return updatedD;
         }
         return d;
-      })
-    );
+      });
 
-    // 3. Mutate currentUser if matching
+      try {
+        localStorage.setItem('wadaage_registered_drivers', JSON.stringify(updatedDrivers));
+      } catch (_e) {}
+
+      return updatedDrivers;
+    });
+
+    // Explicitly sync updated driver to Firestore and Hostinger DB
+    if (targetDriverObjForSync) {
+      saveDriverToFirestore(targetDriverObjForSync);
+      syncDriverToHostinger(targetDriverObjForSync);
+    } else {
+      const fallbackDriver: Driver = {
+        id: actualId,
+        name: currentUser?.name || 'Driver Partner',
+        phone: actualPhone,
+        avatar: currentUser?.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+        gender: 'male',
+        rating: 5.0,
+        totalTrips: 0,
+        status: newBalUsd >= minThresholdUsd ? 'available' : 'offline',
+        isVerified: true,
+        kycStatus: 'approved',
+        currentLocation: { lat: 9.5600, lng: 44.0650 },
+        vehicle: { model: 'Toyota Vitz', licensePlate: 'SL-101', color: 'White', category: 'wadaage_taxi', capacity: 4 },
+        todayEarnings: 0,
+        weeklyEarnings: 0,
+        hoursOnline: 1,
+        acceptanceRate: 100,
+        service_type: 'Both',
+        walletBalanceUsd: newBalUsd,
+        wallet_balance_usd: newBalUsd,
+      };
+      saveDriverToFirestore(fallbackDriver);
+      syncDriverToHostinger(fallbackDriver);
+    }
+
+    // 3. Mutate currentUser if matching and persist to secureStorage & localStorage
     if (currentUser && currentUser.role === 'driver') {
       const cClean = currentUser.phone ? currentUser.phone.replace(/\D/g, '') : '';
       const isCurrentDriver =
@@ -2965,15 +3014,21 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (cleanPhone && cClean && (cClean === cleanPhone || cClean.endsWith(cleanPhone) || cleanPhone.endsWith(cClean)));
 
       if (isCurrentDriver) {
-        setCurrentUser((prevUser) =>
-          prevUser
-            ? {
-                ...prevUser,
-                walletBalanceUsd: newBalUsd,
-                wallet_balance_usd: newBalUsd,
-              }
-            : null
-        );
+        const updatedUser: AuthUser = {
+          ...currentUser,
+          walletBalanceUsd: newBalUsd,
+          wallet_balance_usd: newBalUsd,
+        };
+
+        setCurrentUser(updatedUser);
+
+        try {
+          secureStorage.setItem('wadaage_auth_user', updatedUser);
+          secureStorage.setItem('wadaage_auth_driver', updatedUser);
+          localStorage.setItem('wadaage_auth_user', JSON.stringify(updatedUser));
+          localStorage.setItem('wadaage_auth_driver', JSON.stringify(updatedUser));
+        } catch (_e) {}
+
         if (newBalUsd >= minThresholdUsd && newBalUsd > 0) {
           setLowBalanceLockoutAlert(false);
           sounds.playAcceptedChime();

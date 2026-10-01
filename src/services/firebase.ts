@@ -440,6 +440,7 @@ export async function saveDriverToFirestore(driver: Driver): Promise<void> {
   const lat = driver.currentLocation?.lat ?? (driver as any).lat ?? 9.5600;
   const lng = driver.currentLocation?.lng ?? (driver as any).lng ?? 44.0650;
   const heading = (driver as any).heading ?? 0;
+  const realBalUsd = driver.walletBalanceUsd !== undefined ? Number(driver.walletBalanceUsd) : (driver as any).wallet_balance_usd !== undefined ? Number((driver as any).wallet_balance_usd) : undefined;
 
   // 1. Direct Firestore write
   try {
@@ -452,6 +453,7 @@ export async function saveDriverToFirestore(driver: Driver): Promise<void> {
         lat,
         lng,
         heading,
+        ...(realBalUsd !== undefined ? { walletBalanceUsd: realBalUsd, wallet_balance_usd: realBalUsd } : {}),
         updatedAt: new Date().toISOString(),
       }),
       { merge: true }
