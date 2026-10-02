@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Car,
   ChevronDown,
@@ -71,7 +71,8 @@ import { LocationSetupModal } from '../Location/LocationSetupModal';
 import { SomalilandFlag } from '../Common/SomalilandFlag';
 import { ChatModal } from '../Passenger/ChatModal';
 import { WadaageDriverDashboard } from './WadaageDriverDashboard';
-import { formatCurrency, EXCHANGE_RATE_USD_TO_SLSH } from '../../utils/geo';
+import { formatCurrency, EXCHANGE_RATE_USD_TO_SLSH, calculateDistanceKm } from '../../utils/geo';
+import { HARGEISA_PLACES } from '../../data/hargeisaPlaces';
 import { notificationService } from '../../services/notificationService';
 import { voiceNavigationService } from '../../services/voiceNavigationService';
 import { sounds } from '../../utils/audio';
@@ -108,6 +109,7 @@ export const MobileDriverApp: React.FC = () => {
     toggleAutoAcceptShares,
     stackPassengerToActiveRide,
     resetRideState,
+    getDriverCoordinates,
     getDispatchRadiusKm,
     isOrderWithinDriverDispatchRadius,
     initiateVoiceCall,
@@ -150,14 +152,80 @@ export const MobileDriverApp: React.FC = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferNotice, setTransferNotice] = useState<string | null>(null);
 
-  // Street Hail (Manual Order Entry) State
+  // Street Hail (Standing Pickup & Live Taximeter) State
   const [showStreetHailModal, setShowStreetHailModal] = useState(false);
   const [streetPassengerName, setStreetPassengerName] = useState('');
   const [streetPassengerPhone, setStreetPassengerPhone] = useState('');
   const [streetDestination, setStreetDestination] = useState('');
-  const [streetFareUsd, setStreetFareUsd] = useState('3.50');
+  const [streetHailDistanceKm, setStreetHailDistanceKm] = useState<number>(3.0);
+  const [streetHailSearchResults, setStreetHailSearchResults] = useState<any[]>([]);
+  const [isSearchingStreetPlaces, setIsSearchingStreetPlaces] = useState(false);
   const [streetPaymentMethod, setStreetPaymentMethod] = useState<'cash' | 'wallet'>('cash');
   const [kycAlertMessage, setKycAlertMessage] = useState<string | null>(null);
+
+  // Compute normal taxi fare: 1st KM = $1.20 (12,000 SLSH), each subsequent KM = $0.70 (7,000 SLSH)
+  const computedStreetFareUsd = useMemo(() => {
+    const km = Math.max(1, streetHailDistanceKm || 1);
+    const chargeableKm = Math.max(0, km - 1);
+    const fare = 1.20 + (chargeableKm * 0.70);
+    return Math.round(fare * 100) / 100;
+  }, [streetHailDistanceKm]);
+
+  const computedStreetFareSlsh = useMemo(() => {
+    return Math.round(computedStreetFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
+  }, [computedStreetFareUsd]);
+
+  // Handle destination input changes & search both DB and Google
+  const handleStreetDestinationChange = useCallback(async (query: string) => {
+    setStreetDestination(query);
+    if (!query.trim() || query.trim().length < 2) {
+      setStreetHailSearchResults([]);
+      return;
+    }
+
+    setIsSearchingStreetPlaces(true);
+    try {
+      const q = query.toLowerCase().trim();
+      const localMatches = HARGEISA_PLACES.filter((p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.address.toLowerCase().includes(q) ||
+        p.district?.toLowerCase().includes(q)
+      ).slice(0, 5);
+
+      // Also query server Google autocomplete endpoint
+      const res = await fetch(`/api/places/autocomplete?input=${encodeURIComponent(query)}`);
+      let remoteMatches: any[] = [];
+      if (res.ok) {
+        const data = await res.json();
+        remoteMatches = Array.isArray(data.predictions) ? data.predictions.slice(0, 5) : [];
+      }
+
+      const combined = [...localMatches];
+      const seen = new Set(localMatches.map(m => m.name.toLowerCase()));
+      for (const r of remoteMatches) {
+        if (!seen.has(r.name.toLowerCase())) {
+          seen.add(r.name.toLowerCase());
+          combined.push(r);
+        }
+      }
+
+      setStreetHailSearchResults(combined);
+    } catch {
+      // Fallback
+    } finally {
+      setIsSearchingStreetPlaces(false);
+    }
+  }, []);
+
+  const handleSelectStreetPlace = useCallback((place: any) => {
+    setStreetDestination(place.name);
+    setStreetHailSearchResults([]);
+    const driverLoc = getDriverCoordinates();
+    const targetLat = place.lat || 9.5600;
+    const targetLng = place.lng || 44.0650;
+    const dist = calculateDistanceKm(driverLoc.lat, driverLoc.lng, targetLat, targetLng);
+    setStreetHailDistanceKm(Math.max(1, Math.round(dist * 10) / 10));
+  }, [getDriverCoordinates]);
 
   // Determine current driver's KYC status
   const currentDriverRecord = drivers.find(
@@ -2779,18 +2847,18 @@ export const MobileDriverApp: React.FC = () => {
         );
       })()}
 
-      {/* Manual Street Hail (Direct Pickup) Modal */}
+      {/* Manual Street Hail (Standing Pickup On The Road) Modal */}
       {showStreetHailModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
-          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 max-w-md w-full shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center space-x-2">
                 <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
                   <Car className="w-5 h-5 text-emerald-400" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm text-white">Manual Street Hail Pickup</h3>
-                  <p className="text-[11px] text-slate-400">Normal Taxi On-Road Passenger Entry</p>
+                  <h3 className="font-extrabold text-sm text-white">Standing Pickup on the Road</h3>
+                  <p className="text-[11px] text-slate-400">Normal Taxi On-Road Meter & Fare Calculation</p>
                 </div>
               </div>
               <button
@@ -2802,12 +2870,26 @@ export const MobileDriverApp: React.FC = () => {
               </button>
             </div>
 
+            {/* Standard Taxi Pricing Notice Banner */}
+            <div className="p-3 bg-emerald-950/60 border border-emerald-500/30 rounded-2xl text-[11.5px] space-y-1">
+              <div className="flex items-center justify-between font-black text-emerald-300">
+                <span>📍 Standard Taxi Pricing Formula:</span>
+                <span className="text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/40">Hargeisa Metred</span>
+              </div>
+              <p className="text-slate-300 text-[11px]">
+                • <strong>1st KM (Base Fare):</strong> 12,000 SLSH ($1.20 USD)
+              </p>
+              <p className="text-slate-300 text-[11px]">
+                • <strong>Subsequent KMs:</strong> +7,000 SLSH ($0.70 USD) per each additional km
+              </p>
+            </div>
+
             <div className="space-y-3 pt-1">
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 mb-1">Passenger Name (Magaca Rakaabka)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Maxamed Cali"
+                  placeholder="e.g. Maxamed Cali (Optional)"
                   value={streetPassengerName}
                   onChange={(e) => setStreetPassengerName(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
@@ -2818,61 +2900,115 @@ export const MobileDriverApp: React.FC = () => {
                 <label className="block text-[11px] font-bold text-slate-300 mb-1">Phone Number (Tel Rakaabka)</label>
                 <input
                   type="text"
-                  placeholder="e.g. +252634000000"
+                  placeholder="e.g. +252 63 4XXXXXX (Optional)"
                   value={streetPassengerPhone}
                   onChange={(e) => setStreetPassengerPhone(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
+              {/* Destination Search with DB & Google live suggestions */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Destination (Goobta Uu Tagayo) - Google & DB Search
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search place in Hargeisa (e.g. Mansoor, Airport, Waheen...)"
+                    value={streetDestination}
+                    onChange={(e) => handleStreetDestinationChange(e.target.value)}
+                    className="w-full px-3.5 py-2.5 pr-8 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
+                  />
+                  {isSearchingStreetPlaces && (
+                    <div className="absolute right-2.5 top-2.5">
+                      <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Dropdown Suggestions */}
+                {streetHailSearchResults.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 max-h-48 overflow-y-auto divide-y divide-slate-700">
+                    {streetHailSearchResults.map((place, idx) => (
+                      <button
+                        key={place.id || idx}
+                        type="button"
+                        onClick={() => handleSelectStreetPlace(place)}
+                        className="w-full text-left p-2.5 hover:bg-slate-700/80 flex items-center justify-between text-xs text-white transition"
+                      >
+                        <div className="truncate pr-2">
+                          <div className="font-bold text-slate-100 truncate">{place.name}</div>
+                          <div className="text-[10px] text-slate-400 truncate">{place.address}</div>
+                        </div>
+                        <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded shrink-0">
+                          Select
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Distance Slider / Selector */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1">Destination Address (Goobta Uu Tagayo)</label>
+                <div className="flex items-center justify-between mb-1 text-[11px] font-bold">
+                  <span className="text-slate-300">Trip Distance:</span>
+                  <span className="text-emerald-400 font-mono font-black">{streetHailDistanceKm.toFixed(1)} KM</span>
+                </div>
                 <input
-                  type="text"
-                  placeholder="e.g. Jigjiga Yar / Downtown"
-                  value={streetDestination}
-                  onChange={(e) => setStreetDestination(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
+                  type="range"
+                  min="0.5"
+                  max="25"
+                  step="0.5"
+                  value={streetHailDistanceKm}
+                  onChange={(e) => setStreetHailDistanceKm(parseFloat(e.target.value) || 1)}
+                  className="w-full accent-[#008751] cursor-pointer"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Agreed Fare (USD)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="3.50"
-                    value={streetFareUsd}
-                    onChange={(e) => setStreetFareUsd(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500 font-mono"
-                  />
+              {/* Live Fare Display Card */}
+              <div className="p-3.5 bg-slate-800/90 border border-slate-700 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Total Calculated Fare:</span>
+                  <div className="text-right">
+                    <div className="text-base font-black text-emerald-400 font-mono">
+                      {computedStreetFareSlsh.toLocaleString()} SLSH
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-bold">
+                      (${computedStreetFareUsd.toFixed(2)} USD)
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Payment Method</label>
-                  <select
-                    value={streetPaymentMethod}
-                    onChange={(e) => setStreetPaymentMethod(e.target.value as any)}
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="cash">Cash (Lacag Caan Ah)</option>
-                    <option value="wallet">Wadaage Wallet</option>
-                  </select>
+                <div className="pt-2 border-t border-slate-700/60 text-[10.5px] text-slate-400 flex items-center justify-between">
+                  <span>1st KM: 12,000 SLSH ($1.20)</span>
+                  <span>Extra {Math.max(0, streetHailDistanceKm - 1).toFixed(1)} KM @ 7k/km</span>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Payment Method</label>
+                <select
+                  value={streetPaymentMethod}
+                  onChange={(e) => setStreetPaymentMethod(e.target.value as any)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="cash">Cash (Lacag Caan Ah / SLSH)</option>
+                  <option value="wallet">Wadaage Wallet</option>
+                </select>
               </div>
 
               <div className="pt-2">
                 <button
                   type="button"
                   onClick={() => {
-                    const fare = parseFloat(streetFareUsd) || 3.50;
                     if (createStreetHailRide) {
                       createStreetHailRide({
-                        name: streetPassengerName,
-                        phone: streetPassengerPhone,
-                        destinationAddress: streetDestination,
-                        fareUsd: fare,
+                        name: streetPassengerName || 'Street Standing Passenger',
+                        phone: streetPassengerPhone || '+252630000000',
+                        destinationAddress: streetDestination || 'Standing Pickup Destination',
+                        fareUsd: computedStreetFareUsd,
                         paymentMethod: streetPaymentMethod,
                       });
                     }
@@ -2880,11 +3016,12 @@ export const MobileDriverApp: React.FC = () => {
                     setStreetPassengerName('');
                     setStreetPassengerPhone('');
                     setStreetDestination('');
+                    setStreetHailSearchResults([]);
                   }}
-                  className="w-full py-3.5 rounded-2xl bg-[#008751] hover:bg-[#007445] text-white font-extrabold text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-900/40 flex items-center justify-center space-x-2 cursor-pointer"
+                  className="w-full py-3.5 rounded-2xl bg-[#008751] hover:bg-[#007445] text-white font-extrabold text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-900/40 flex items-center justify-center space-x-2 cursor-pointer active:scale-95"
                 >
                   <CheckCircle className="w-4 h-4 text-emerald-200" />
-                  <span>Start Manual Street Trip (Start Trip)</span>
+                  <span>Start Standing Taxi Trip ({computedStreetFareSlsh.toLocaleString()} SLSH)</span>
                 </button>
               </div>
             </div>

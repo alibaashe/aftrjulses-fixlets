@@ -254,38 +254,60 @@ export const MobilePassengerApp: React.FC = () => {
   };
 
   const filteredLocalPlaces = React.useMemo(() => {
-    const categoryMap: Record<string, string> = {
-      'Hotels': 'Hotel',
-      'Hospitals': 'Hospital',
-      'Banks': 'Bank',
-      'Malls': 'Market',
-      'Universities': 'Education',
-      'Transit': 'Transit',
+    const categoryMap: Record<string, string[]> = {
+      'Universities': ['education', 'university', 'jaamac'],
+      'Hospitals': ['hospital', 'clinic', 'health', 'cusbitaal', 'dhakhtar'],
+      'Schools': ['school', 'dugsi', 'academy'],
+      'Roads': ['road', 'street', 'highway', 'wadad', 'jid'],
+      'Fuel': ['gas station', 'fuel', 'shidaal', 'kaalin', 'petrol'],
+      'Mosques': ['mosque', 'masjid', 'masaajid', 'salaat'],
+      'Malls': ['supermarket', 'mall', 'market', 'suuq', 'grocery'],
+      'Government': ['government', 'ministry', 'wasaarad', 'dowladd', 'palace', 'court'],
+      'NGOs': ['ngo', 'un ', 'unicef', 'undp', 'who', 'humanitarian', 'hayad'],
+      'Restaurants': ['restaurant', 'cafe', 'dining', 'cunto', 'maqaayad', 'grill', 'coffee'],
+      'Hotels': ['hotel', 'hospitality', 'huteel', 'suites', 'resort'],
     };
-    const cat = modalCategory !== 'All' ? categoryMap[modalCategory] || modalCategory : undefined;
+
+    const targetKeywords = modalCategory !== 'All' ? categoryMap[modalCategory] : undefined;
+
     if (!searchFilter && modalCategory === 'All') {
-      return HARGEISA_PLACES.slice(0, 15);
+      return HARGEISA_PLACES.slice(0, 30);
     }
+
     return HARGEISA_PLACES.filter((p) => {
-      if (cat && !p.category.toLowerCase().includes(cat.toLowerCase())) return false;
+      // Category filter match
+      if (targetKeywords && targetKeywords.length > 0) {
+        const catStr = `${p.category || ''} ${p.subCategory || ''} ${p.somaliCategory || ''} ${p.generalCategory || ''}`.toLowerCase();
+        const matchesCat = targetKeywords.some((kw) => catStr.includes(kw));
+        if (!matchesCat) return false;
+      }
+
       if (!searchFilter) return true;
-      const q = searchFilter.toLowerCase();
+      const q = searchFilter.toLowerCase().trim();
       return (
         p.name.toLowerCase().includes(q) ||
         p.address.toLowerCase().includes(q) ||
         p.district?.toLowerCase().includes(q) ||
-        p.searchTerms?.some((t) => t.includes(q))
+        p.category?.toLowerCase().includes(q) ||
+        p.somaliCategory?.toLowerCase().includes(q) ||
+        p.searchTerms?.some((t) => t.toLowerCase().includes(q))
       );
     });
   }, [searchFilter, modalCategory]);
 
   const combinedModalPlaces = React.useMemo(() => {
     const seen = new Set<string>();
-    const list: (LocationNode & { isGoogle?: boolean; subCategory?: string; district?: string })[] = [];
+    const list: (LocationNode & {
+      isGoogle?: boolean;
+      isDatabase?: boolean;
+      subCategory?: string;
+      district?: string;
+      somaliCategory?: string;
+    })[] = [];
 
     for (const r of filteredLocalPlaces) {
       seen.add(r.name.toLowerCase().trim());
-      list.push(r);
+      list.push({ ...r, isDatabase: true });
     }
 
     for (const g of modalGoogleResults) {
@@ -1301,18 +1323,31 @@ export const MobilePassengerApp: React.FC = () => {
               </div>
 
               {/* Category Filter Tabs */}
-              <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 no-scrollbar text-[10px]">
-                {['All', 'Hotels', 'Hospitals', 'Banks', 'Malls', 'Universities', 'Transit'].map((cat) => (
+              <div className="flex items-center space-x-1.5 overflow-x-auto pb-1.5 no-scrollbar text-[10px]">
+                {[
+                  { id: 'All', so: '⭐ Dhammaan', en: '⭐ All' },
+                  { id: 'Universities', so: '🎓 Jaamacado', en: '🎓 Universities' },
+                  { id: 'Hospitals', so: '🏥 Cusbitaallo', en: '🏥 Hospitals' },
+                  { id: 'Schools', so: '📚 Dugsiyo', en: '📚 Schools' },
+                  { id: 'Roads', so: '🛣️ Waddooyin', en: '🛣️ Roads' },
+                  { id: 'Fuel', so: '⛽ Kaalmo Shidaal', en: '⛽ Fuel Stations' },
+                  { id: 'Mosques', so: '🕌 Masaajidda', en: '🕌 Mosques' },
+                  { id: 'Malls', so: '🛍️ Suuqyo & Malls', en: '🛍️ Supermarkets' },
+                  { id: 'Government', so: "🏛️ Hay'adaha Dowladda", en: '🏛️ Government' },
+                  { id: 'NGOs', so: "🏢 Hay'adaha UN/NGO", en: '🏢 NGOs' },
+                  { id: 'Restaurants', so: '🍽️ Maqaayado & Cafes', en: '🍽️ Dining' },
+                  { id: 'Hotels', so: '🏨 Huteello', en: '🏨 Hotels' },
+                ].map((cat) => (
                   <button
-                    key={cat}
-                    onClick={() => setModalCategory(cat)}
+                    key={cat.id}
+                    onClick={() => setModalCategory(cat.id)}
                     className={`px-2.5 py-1 rounded-lg font-bold whitespace-nowrap transition ${
-                      modalCategory === cat
+                      modalCategory === cat.id
                         ? 'bg-[#008751] text-white shadow-xs'
                         : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    {cat === 'All' ? (language === 'so' ? '⭐ Dhammaan Meelaha' : '⭐ All Places') : cat}
+                    {language === 'so' ? cat.so : cat.en}
                   </button>
                 ))}
               </div>
@@ -1353,7 +1388,7 @@ export const MobilePassengerApp: React.FC = () => {
                         &quot;{searchFilter}&quot;
                       </div>
                       <div className="text-[10px] text-slate-500 truncate">
-                        {language === 'so' ? 'U dhig meel ahaan Hargeysa' : 'Set as point in Hargeisa'}
+                        {language === 'so' ? 'U dhig meel ahaan Hargeysa' : 'Set as custom coordinate in Hargeisa'}
                       </div>
                     </div>
                   </div>
@@ -1371,10 +1406,26 @@ export const MobilePassengerApp: React.FC = () => {
                 >
                   <div className="flex items-center space-x-3 min-w-0">
                     <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0 group-hover:scale-105 transition">
-                      {place.category === 'Transit' || place.name.toLowerCase().includes('airport') ? (
+                      {place.category === 'Transit' || place.name.toLowerCase().includes('airport') || (place as any).subCategory === 'aerodrome' ? (
                         <Plane className="w-4 h-4 text-blue-600" />
                       ) : place.category?.toLowerCase().includes('hotel') ? (
                         <Building className="w-4 h-4 text-amber-600" />
+                      ) : place.category?.toLowerCase().includes('hospital') || place.name.toLowerCase().includes('hospital') || place.name.toLowerCase().includes('isbitaal') ? (
+                        <span className="text-sm">🏥</span>
+                      ) : place.category?.toLowerCase().includes('education') || place.name.toLowerCase().includes('university') || place.name.toLowerCase().includes('jaamacadda') ? (
+                        <span className="text-sm">🎓</span>
+                      ) : place.category?.toLowerCase().includes('school') || place.name.toLowerCase().includes('dugsiga') ? (
+                        <span className="text-sm">📚</span>
+                      ) : place.category?.toLowerCase().includes('mosque') || place.name.toLowerCase().includes('masjid') || place.name.toLowerCase().includes('casaan') ? (
+                        <span className="text-sm">🕌</span>
+                      ) : place.category?.toLowerCase().includes('gas station') || place.category?.toLowerCase().includes('fuel') || place.name.toLowerCase().includes('kaalinta') ? (
+                        <span className="text-sm">⛽</span>
+                      ) : place.category?.toLowerCase().includes('government') || place.name.toLowerCase().includes('wasaaradda') || place.name.toLowerCase().includes('madaxtooyada') ? (
+                        <span className="text-sm">🏛️</span>
+                      ) : place.category?.toLowerCase().includes('restaurant') || place.category?.toLowerCase().includes('cafe') || place.name.toLowerCase().includes('maqaayad') ? (
+                        <span className="text-sm">🍽️</span>
+                      ) : place.category?.toLowerCase().includes('market') || place.category?.toLowerCase().includes('mall') || place.category?.toLowerCase().includes('supermarket') ? (
+                        <span className="text-sm">🛍️</span>
                       ) : (
                         <MapPin className="w-4 h-4 text-[#008751]" />
                       )}
@@ -1382,13 +1433,22 @@ export const MobilePassengerApp: React.FC = () => {
                     <div className="truncate">
                       <div className="flex items-center space-x-1.5">
                         <span className="text-xs font-bold text-slate-900 truncate group-hover:text-[#008751] transition">{place.name}</span>
+                        {place.isDatabase && (
+                          <span className="text-[8px] font-black bg-emerald-100 text-[#008751] px-1.5 py-0.2 rounded shrink-0 flex items-center gap-0.5">
+                            <span className="w-1 h-1 rounded-full bg-[#008751]"></span>
+                            <span>DB</span>
+                          </span>
+                        )}
                         {place.isGoogle && (
                           <span className="text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded shrink-0">
                             Google
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-slate-500 truncate">{place.address}</div>
+                      <div className="text-[11px] text-slate-500 truncate flex items-center gap-1">
+                        {place.district && <span className="font-semibold text-slate-700">{place.district} • </span>}
+                        <span>{place.address}</span>
+                      </div>
                     </div>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-[#008751] transition shrink-0 ml-2" />

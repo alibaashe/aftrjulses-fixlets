@@ -382,6 +382,7 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
     roadDurationMins,
     roadRouteSummary,
     role,
+    driverGpsStatus,
   } = useRide();
 
   const activeRide = currentRide;
@@ -393,59 +394,53 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
   const [isCenteringGPS, setIsCenteringGPS] = useState<boolean>(false);
   const [userGpsLocation, setUserGpsLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Live Driver Real-Time Telematics Tracking State
+  // Live Driver Real-Time Telematics Tracking State (Direct Real Hardware GPS / Firestore stream)
   const [liveDriverPos, setLiveDriverPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
 
   const assignedDriver = activeRide?.assignedDriverId
     ? drivers.find((d) => d.id === activeRide.assignedDriverId) || activeDriver
     : activeDriver;
 
-  const isDriverEnRoute =
-    activeRide?.status === 'accepted' ||
-    activeRide?.status === 'driver_arrived' ||
-    activeRide?.status === 'in_progress';
-
-  // Smooth Driver Tracing Animation when Ride is Active
+  // Real-Time Hardware & Network Telematics Sync (Reflects ACTUAL vehicle location faithfully)
   useEffect(() => {
-    if (!assignedDriver) {
+    if (!assignedDriver && role !== 'driver') {
       setLiveDriverPos(null);
       return;
     }
 
-    const startLat = assignedDriver.currentLocation?.lat ?? 9.5600;
-    const startLng = assignedDriver.currentLocation?.lng ?? 44.0650;
+    // If current user is the driver, prioritize real device hardware GPS fix
+    if (role === 'driver' && driverGpsStatus?.active && driverGpsStatus.lat) {
+      setLiveDriverPos({
+        lat: driverGpsStatus.lat,
+        lng: driverGpsStatus.lng,
+        heading: driverGpsStatus.heading || 0,
+      });
+      return;
+    }
 
-    let currentLat = startLat;
-    let currentLng = startLng;
-    let heading = 45;
+    // For passenger and admin, use real coordinates broadcasted by the driver
+    if (assignedDriver) {
+      const realLat = assignedDriver.currentLocation?.lat ?? (assignedDriver as any).lat ?? 9.5600;
+      const realLng = assignedDriver.currentLocation?.lng ?? (assignedDriver as any).lng ?? 44.0650;
+      const realHeading = assignedDriver.currentHeading ?? 45;
 
-    setLiveDriverPos({ lat: currentLat, lng: currentLng, heading });
-
-    if (!isDriverEnRoute || !pickupLocation) return;
-
-    const targetLat = currentRide?.status === 'in_progress' && dropoffLocation
-      ? dropoffLocation.lat
-      : pickupLocation.lat;
-    const targetLng = currentRide?.status === 'in_progress' && dropoffLocation
-      ? dropoffLocation.lng
-      : pickupLocation.lng;
-
-    const interval = setInterval(() => {
-      const dLat = targetLat - currentLat;
-      const dLng = targetLng - currentLng;
-      const dist = Math.hypot(dLat, dLng);
-
-      if (dist > 0.0002) {
-        const step = 0.00012;
-        currentLat += (dLat / dist) * step;
-        currentLng += (dLng / dist) * step;
-        heading = (Math.atan2(dLng, dLat) * 180) / Math.PI;
-        setLiveDriverPos({ lat: currentLat, lng: currentLng, heading });
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [assignedDriver?.id, isDriverEnRoute, pickupLocation?.lat, pickupLocation?.lng, dropoffLocation?.lat, dropoffLocation?.lng, currentRide?.status]);
+      setLiveDriverPos({
+        lat: realLat,
+        lng: realLng,
+        heading: realHeading,
+      });
+    }
+  }, [
+    assignedDriver?.id,
+    assignedDriver?.currentLocation?.lat,
+    assignedDriver?.currentLocation?.lng,
+    assignedDriver?.currentHeading,
+    role,
+    driverGpsStatus?.lat,
+    driverGpsStatus?.lng,
+    driverGpsStatus?.heading,
+    driverGpsStatus?.active,
+  ]);
 
   const handleSetLocation = useCallback((type: 'pickup' | 'dropoff', lat: number, lng: number) => {
     const nearestInfo = findNearestHargeisaPlace(lat, lng);

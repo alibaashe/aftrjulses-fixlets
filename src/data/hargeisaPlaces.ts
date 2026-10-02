@@ -1,4 +1,5 @@
 import { LocationNode } from '../types';
+import { HARGEISA_VERIFIED_LANDMARKS } from './hargeisaKeyLandmarks';
 
 export interface HargeisaPlace extends LocationNode {
   category: string;
@@ -12,8 +13,9 @@ export interface HargeisaPlace extends LocationNode {
   osm_id?: number;
 }
 
-// Authoritative Master Database of Real OpenStreetMap Hargeisa Places
+// Authoritative Master Database of Real OpenStreetMap Hargeisa Places + Verified Key Landmarks
 export const HARGEISA_PLACES: HargeisaPlace[] = [
+  ...HARGEISA_VERIFIED_LANDMARKS,
   {
     "id": "ina_naxar_street",
     "osm_id": 990001,
