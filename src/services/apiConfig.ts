@@ -6,8 +6,8 @@
 // Key for storing custom remote server URL in localStorage (e.g. https://your-domain.com or https://vps-ip:3000)
 const SERVER_URL_STORAGE_KEY = 'wadaage_remote_server_url';
 
-// Active cloud app backend URL for native APK builds and remote terminals
-const DEFAULT_REMOTE_URL = 'https://ais-pre-cmczfjamftdabuwjqcmxcq-109844122199.europe-west2.run.app';
+// Active production cloud backend URL for native APK builds and remote terminals
+const DEFAULT_REMOTE_URL = 'https://www.wadaage.com';
 
 /**
  * Returns true if the app is running inside a Capacitor native mobile container (Android/iOS APK)
