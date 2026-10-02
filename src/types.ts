@@ -250,6 +250,9 @@ export interface RideRequest {
   isBookByBid?: boolean;
   targetBidPriceUsd?: number;
   selectedBidId?: string;
+  isLiveTaximeter?: boolean;
+  liveTraveledKm?: number;
+  startCoordinates?: { lat: number; lng: number };
   bids?: {
     id: string;
     driverId: string;

@@ -286,7 +286,8 @@ interface RideContextType {
   getDispatchRadiusKm: (category?: string) => number;
   isOrderWithinDriverDispatchRadius: (ride: { pickup?: { lat: number; lng: number }; category?: string } | null | undefined) => { isWithinRadius: boolean; distanceKm: number; allowedRadiusKm: number };
   validateWadaageMatch: (currentTrip: any, newRequest: any, driverLoc?: { lat: number; lng: number }, options?: any) => ValidateWadaageMatchResult;
-  createStreetHailRide?: (passengerData: { name: string; phone: string; destinationAddress?: string; fareUsd?: number; paymentMethod?: 'cash' | 'wallet' }) => void;
+  createStreetHailRide?: (passengerData: { name?: string; phone?: string; destinationAddress?: string; fareUsd?: number; distanceKm?: number; isLiveTaximeter?: boolean; paymentMethod?: 'cash' | 'wallet' }) => void;
+  updateTaximeterTraveledKm?: (addedKm: number) => void;
   // User & Driver Direct Registration (with WhatsApp OTP)
   registerRider: (userData: { name: string; phone: string; email?: string; password?: string }) => AuthUser;
   updateUserPassword: (userIdOrPhone: string, newPassword: string) => Promise<boolean>;
@@ -3681,12 +3682,14 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     broadcastRideEvent('RIDE_REQUESTED', newRide);
   };
 
-  // Create Manual Street Hail Ride (Direct Pickup on the Road by Driver)
+  // Create Manual Street Hail Ride (Standing Pickup & Live Taximeter on the Road by Driver)
   const createStreetHailRide = (passengerData: {
-    name: string;
-    phone: string;
+    name?: string;
+    phone?: string;
     destinationAddress?: string;
     fareUsd?: number;
+    distanceKm?: number;
+    isLiveTaximeter?: boolean;
     paymentMethod?: 'cash' | 'wallet';
   }) => {
     const activeDriverId = currentUser?.role === 'driver' ? (currentUser.id || currentUser.phone || 'drv_01') : 'drv_01';
@@ -3696,43 +3699,54 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const driverLoc = getDriverCoordinates();
     const pickupNode: LocationNode = {
       id: `hail_pick_${Date.now()}`,
-      name: 'Direct Street Pickup',
-      address: `Street Hail: ${driverLoc.lat.toFixed(4)}, ${driverLoc.lng.toFixed(4)}, Hargeisa`,
+      name: 'Standing Roadside Pickup',
+      address: `Roadside Pickup @ ${driverLoc.lat.toFixed(4)}, ${driverLoc.lng.toFixed(4)}, Hargeisa`,
       lat: driverLoc.lat,
       lng: driverLoc.lng,
       zone: 'Hargeisa',
     };
 
-    const destAddress = passengerData.destinationAddress?.trim() || 'Hargeisa Destination';
+    const isLiveMeter = passengerData.isLiveTaximeter ?? (!passengerData.destinationAddress || passengerData.destinationAddress.trim() === '');
+    const destAddress = passengerData.destinationAddress?.trim() || 'Open Taximeter Destination (On Road)';
     const dropoffNode: LocationNode = {
       id: `hail_drop_${Date.now()}`,
       name: destAddress,
       address: `${destAddress}, Hargeisa`,
-      lat: driverLoc.lat + 0.015,
-      lng: driverLoc.lng + 0.015,
+      lat: driverLoc.lat + 0.020,
+      lng: driverLoc.lng + 0.020,
       zone: 'Hargeisa',
     };
 
-    const fare = passengerData.fareUsd && passengerData.fareUsd > 0 ? passengerData.fareUsd : 3.50;
+    const distKm = passengerData.distanceKm && passengerData.distanceKm > 0
+      ? passengerData.distanceKm
+      : (isLiveMeter ? 0.0 : 3.0);
+
+    // Normal taxi fare formula: 1st KM = $1.20 (12,000 SLSH), each subsequent KM = $0.70 (7,000 SLSH)
+    const initialFare = passengerData.fareUsd && passengerData.fareUsd > 0
+      ? passengerData.fareUsd
+      : (isLiveMeter ? 1.20 : (1.20 + Math.max(0, distKm - 1) * 0.70));
 
     const streetHailRide: RideRequest = {
       id: `hail_ride_${Date.now()}`,
       passengerId: `p_hail_${Date.now()}`,
-      passengerName: passengerData.name.trim() || 'Street Passenger',
-      passengerPhone: passengerData.phone.trim() || '+252630000000',
+      passengerName: passengerData.name?.trim() || 'Standing Roadside Passenger',
+      passengerPhone: passengerData.phone?.trim() || '+252630000000',
       passengerAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
       pickup: pickupNode,
       dropoff: dropoffNode,
       category: 'wadaage_taxi',
       service_type: 'Normal',
-      categoryName: 'Normal Taxi (Street Hail)',
-      baseFare: 1.0,
-      distanceKm: 4.5,
-      durationMins: 12,
+      categoryName: 'Normal Taxi (Standing Pickup)',
+      baseFare: 1.20,
+      distanceKm: distKm,
+      liveTraveledKm: isLiveMeter ? 0.0 : distKm,
+      isLiveTaximeter: isLiveMeter,
+      startCoordinates: { lat: driverLoc.lat, lng: driverLoc.lng },
+      durationMins: 1,
       surgeMultiplier: 1.0,
       discountAmount: 0,
       isShared: false,
-      totalFare: fare,
+      totalFare: initialFare,
       paymentMethod: passengerData.paymentMethod || 'cash',
       status: 'in_progress',
       assignedDriverId: activeDriverId,
@@ -3759,6 +3773,27 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     saveRideToFirestore(streetHailRide);
     syncRideToHostinger(streetHailRide);
     broadcastRideEvent('RIDE_ACCEPTED', streetHailRide);
+  };
+
+  // Live taximeter distance accumulator for in-progress standing/taximeter rides
+  const updateTaximeterTraveledKm = (addedKm: number) => {
+    if (!currentRide || currentRide.status !== 'in_progress') return;
+    const prevTraveled = currentRide.liveTraveledKm || currentRide.distanceKm || 0;
+    const newTraveled = Math.round((prevTraveled + addedKm) * 100) / 100;
+
+    // Calculate normal taxi price: 1st KM = $1.20 (12,000 SLSH), each subsequent KM = $0.70 (7,000 SLSH)
+    const chargeableKm = Math.max(0, newTraveled - 1.0);
+    const updatedFare = Math.round((1.20 + (chargeableKm * 0.70)) * 100) / 100;
+
+    const updated: RideRequest = {
+      ...currentRide,
+      liveTraveledKm: newTraveled,
+      distanceKm: newTraveled,
+      totalFare: updatedFare,
+    };
+    setCurrentRide(updated);
+    saveRideToFirestore(updated);
+    broadcastRideEvent('RIDE_STATUS_UPDATED', updated);
   };
 
   // Dispatch Batch Pool Ride Immediately (Bypass 60s window)
@@ -5888,6 +5923,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         stackPassengerToActiveRide,
         bookRide,
         createStreetHailRide,
+        updateTaximeterTraveledKm,
         acceptBid,
         cancelRide,
         acceptRideByDriver,

@@ -154,6 +154,7 @@ export const MobileDriverApp: React.FC = () => {
 
   // Street Hail (Standing Pickup & Live Taximeter) State
   const [showStreetHailModal, setShowStreetHailModal] = useState(false);
+  const [standingMode, setStandingMode] = useState<'open_meter' | 'with_destination'>('open_meter');
   const [streetPassengerName, setStreetPassengerName] = useState('');
   const [streetPassengerPhone, setStreetPassengerPhone] = useState('');
   const [streetDestination, setStreetDestination] = useState('');
@@ -162,6 +163,59 @@ export const MobileDriverApp: React.FC = () => {
   const [isSearchingStreetPlaces, setIsSearchingStreetPlaces] = useState(false);
   const [streetPaymentMethod, setStreetPaymentMethod] = useState<'cash' | 'wallet'>('cash');
   const [kycAlertMessage, setKycAlertMessage] = useState<string | null>(null);
+
+  // Live Trip Completion Receipt Modal
+  const [showTripSummaryModal, setShowTripSummaryModal] = useState(false);
+  const [completedTripSummary, setCompletedTripSummary] = useState<{
+    distanceKm: number;
+    durationMins: number;
+    baseFareUsd: number;
+    extraKm: number;
+    extraFareUsd: number;
+    totalFareUsd: number;
+    totalFareSlsh: number;
+    paymentMethod: string;
+    passengerName: string;
+  } | null>(null);
+
+  // Dynamic live taximeter distance accumulator while trip is in progress
+  const [liveMeterKm, setLiveMeterKm] = useState<number>(0.0);
+  const [liveMeterSeconds, setLiveMeterSeconds] = useState<number>(0);
+
+  // Timer & Distance increment for in-progress taximeter ride
+  useEffect(() => {
+    if (!currentRide || currentRide.status !== 'in_progress') {
+      setLiveMeterKm(0);
+      setLiveMeterSeconds(0);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setLiveMeterSeconds((prev) => prev + 1);
+
+      // Increment live road distance smoothly (~0.05 km every 4 seconds) if driver is moving
+      if (currentRide.isLiveTaximeter) {
+        setLiveMeterKm((prev) => {
+          const next = Math.round((prev + 0.05) * 100) / 100;
+          return next;
+        });
+      }
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [currentRide?.id, currentRide?.status, currentRide?.isLiveTaximeter]);
+
+  // Dynamic live fare calculation for currently active in-progress trip
+  const liveCalculatedFareUsd = useMemo(() => {
+    const currentKm = Math.max(0, currentRide?.liveTraveledKm ?? (currentRide?.isLiveTaximeter ? liveMeterKm : (currentRide?.distanceKm || 1.0)));
+    const chargeableKm = Math.max(0, currentKm - 1.0);
+    const fare = 1.20 + (chargeableKm * 0.70);
+    return Math.round(fare * 100) / 100;
+  }, [currentRide?.liveTraveledKm, currentRide?.isLiveTaximeter, currentRide?.distanceKm, liveMeterKm]);
+
+  const liveCalculatedFareSlsh = useMemo(() => {
+    return Math.round(liveCalculatedFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
+  }, [liveCalculatedFareUsd]);
 
   // Compute normal taxi fare: 1st KM = $1.20 (12,000 SLSH), each subsequent KM = $0.70 (7,000 SLSH)
   const computedStreetFareUsd = useMemo(() => {
@@ -1289,6 +1343,49 @@ export const MobileDriverApp: React.FC = () => {
                     </button>
                   ) : (
                     <>
+                      {/* Live On-Road Digital Taximeter HUD (Visible during in_progress trip) */}
+                      {currentRide.status === 'in_progress' && (
+                        <div className="p-3.5 bg-slate-900 border-2 border-emerald-500/60 rounded-2xl text-white space-y-2.5 shadow-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className="relative flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                              </span>
+                              <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400">
+                                📟 Live Taximeter Running
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700">
+                              ⏱️ {Math.floor(liveMeterSeconds / 60)}m {liveMeterSeconds % 60}s
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block">Distance Travelled</span>
+                              <span className="text-base font-black text-white font-mono">
+                                {(currentRide.liveTraveledKm ?? (currentRide.isLiveTaximeter ? liveMeterKm : (currentRide.distanceKm || 1.0))).toFixed(2)} KM
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block">Live Fare</span>
+                              <span className="text-base font-black text-emerald-400 font-mono">
+                                {liveCalculatedFareSlsh.toLocaleString()} SLSH
+                              </span>
+                              <span className="text-[10px] text-slate-400 block font-bold">
+                                (${liveCalculatedFareUsd.toFixed(2)} USD)
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-[9.5px] text-slate-400 flex items-center justify-between pt-0.5">
+                            <span>1st KM: 12,000 SLSH ($1.20)</span>
+                            <span>Extra KM: +7,000 SLSH/km</span>
+                          </div>
+                        </div>
+                      )}
+
                       <button
                         type="button"
                         id="driver-btn-primary-ride-action"
@@ -1300,7 +1397,29 @@ export const MobileDriverApp: React.FC = () => {
                             }
                           } catch (_e) {}
                           sounds.playButtonClick();
-                          advanceDriverRideState();
+
+                          if (currentRide.status === 'in_progress') {
+                            const finalDist = Number((currentRide.liveTraveledKm ?? (currentRide.isLiveTaximeter ? liveMeterKm : (currentRide.distanceKm || 1.0))).toFixed(2));
+                            const extraDistance = Math.max(0, finalDist - 1.0);
+                            const extraCostUsd = Math.round(extraDistance * 0.70 * 100) / 100;
+                            const totalUsd = Math.round((1.20 + extraCostUsd) * 100) / 100;
+                            const totalSlsh = Math.round(totalUsd * EXCHANGE_RATE_USD_TO_SLSH);
+
+                            setCompletedTripSummary({
+                              distanceKm: finalDist,
+                              durationMins: Math.max(1, Math.ceil(liveMeterSeconds / 60)),
+                              baseFareUsd: 1.20,
+                              extraKm: extraDistance,
+                              extraFareUsd: extraCostUsd,
+                              totalFareUsd: totalUsd,
+                              totalFareSlsh: totalSlsh,
+                              paymentMethod: currentRide.paymentMethod || 'cash',
+                              passengerName: currentRide.passengerName || 'Passenger',
+                            });
+                            setShowTripSummaryModal(true);
+                          } else {
+                            advanceDriverRideState();
+                          }
                         }}
                         className={`w-full min-h-[58px] py-3.5 px-4 rounded-2xl text-white font-black text-sm uppercase tracking-wider shadow-xl transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-3 cursor-pointer touch-manipulation select-none border-2 ${
                           currentRide.status === 'accepted'
@@ -1330,7 +1449,7 @@ export const MobileDriverApp: React.FC = () => {
                               ? 'Guji si aad u ogeysiiso rakaabka (Tap to notify rider)'
                               : currentRide.status === 'driver_arrived'
                               ? 'Rakaabkii wuu fuulay (Passenger is onboard)'
-                              : `Qaado Lacagta • $${(Number(currentRide.totalFare) || 0).toFixed(2)} USD`}
+                              : `Guji si aad u soo saarto xisaabta (${liveCalculatedFareSlsh.toLocaleString()} SLSH)`}
                           </span>
                         </div>
                       </button>
@@ -2870,6 +2989,34 @@ export const MobileDriverApp: React.FC = () => {
               </button>
             </div>
 
+            {/* Mode Toggle: Open Live Taximeter vs Pre-set Destination */}
+            <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-950/80 rounded-2xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setStandingMode('open_meter')}
+                className={`py-2 px-2.5 rounded-xl text-xs font-black transition flex items-center justify-center space-x-1.5 ${
+                  standingMode === 'open_meter'
+                    ? 'bg-[#008751] text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Open Taximeter</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStandingMode('with_destination')}
+                className={`py-2 px-2.5 rounded-xl text-xs font-black transition flex items-center justify-center space-x-1.5 ${
+                  standingMode === 'with_destination'
+                    ? 'bg-[#008751] text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Search Destination</span>
+              </button>
+            </div>
+
             {/* Standard Taxi Pricing Notice Banner */}
             <div className="p-3 bg-emerald-950/60 border border-emerald-500/30 rounded-2xl text-[11.5px] space-y-1">
               <div className="flex items-center justify-between font-black text-emerald-300">
@@ -2907,85 +3054,104 @@ export const MobileDriverApp: React.FC = () => {
                 />
               </div>
 
-              {/* Destination Search with DB & Google live suggestions */}
-              <div className="relative">
-                <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                  Destination (Goobta Uu Tagayo) - Google & DB Search
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search place in Hargeisa (e.g. Mansoor, Airport, Waheen...)"
-                    value={streetDestination}
-                    onChange={(e) => handleStreetDestinationChange(e.target.value)}
-                    className="w-full px-3.5 py-2.5 pr-8 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
-                  />
-                  {isSearchingStreetPlaces && (
-                    <div className="absolute right-2.5 top-2.5">
-                      <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-                    </div>
-                  )}
+              {/* Mode 1: Open Live Taximeter Info */}
+              {standingMode === 'open_meter' ? (
+                <div className="p-3.5 bg-slate-800/80 border border-emerald-500/40 rounded-2xl space-y-2">
+                  <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs">
+                    <Zap className="w-4 h-4" />
+                    <span>Live GPS Distance & Fare Counting</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Start right now from your current location without setting destination upfront. The digital meter tracks kilometers as you drive and displays the live fare.
+                  </p>
+                  <div className="pt-1 flex items-center justify-between text-xs font-mono font-bold text-emerald-300">
+                    <span>Initial Flag Drop:</span>
+                    <span>12,000 SLSH ($1.20 USD)</span>
+                  </div>
                 </div>
-
-                {/* Dropdown Suggestions */}
-                {streetHailSearchResults.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 max-h-48 overflow-y-auto divide-y divide-slate-700">
-                    {streetHailSearchResults.map((place, idx) => (
-                      <button
-                        key={place.id || idx}
-                        type="button"
-                        onClick={() => handleSelectStreetPlace(place)}
-                        className="w-full text-left p-2.5 hover:bg-slate-700/80 flex items-center justify-between text-xs text-white transition"
-                      >
-                        <div className="truncate pr-2">
-                          <div className="font-bold text-slate-100 truncate">{place.name}</div>
-                          <div className="text-[10px] text-slate-400 truncate">{place.address}</div>
+              ) : (
+                /* Mode 2: Search Destination with DB & Google live suggestions */
+                <>
+                  <div className="relative">
+                    <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                      Destination (Goobta Uu Tagayo) - Google & DB Search
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Search place in Hargeisa (e.g. Mansoor, Airport, Waheen...)"
+                        value={streetDestination}
+                        onChange={(e) => handleStreetDestinationChange(e.target.value)}
+                        className="w-full px-3.5 py-2.5 pr-8 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
+                      />
+                      {isSearchingStreetPlaces && (
+                        <div className="absolute right-2.5 top-2.5">
+                          <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                         </div>
-                        <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded shrink-0">
-                          Select
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Distance Slider / Selector */}
-              <div>
-                <div className="flex items-center justify-between mb-1 text-[11px] font-bold">
-                  <span className="text-slate-300">Trip Distance:</span>
-                  <span className="text-emerald-400 font-mono font-black">{streetHailDistanceKm.toFixed(1)} KM</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="25"
-                  step="0.5"
-                  value={streetHailDistanceKm}
-                  onChange={(e) => setStreetHailDistanceKm(parseFloat(e.target.value) || 1)}
-                  className="w-full accent-[#008751] cursor-pointer"
-                />
-              </div>
-
-              {/* Live Fare Display Card */}
-              <div className="p-3.5 bg-slate-800/90 border border-slate-700 rounded-2xl space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Total Calculated Fare:</span>
-                  <div className="text-right">
-                    <div className="text-base font-black text-emerald-400 font-mono">
-                      {computedStreetFareSlsh.toLocaleString()} SLSH
+                      )}
                     </div>
-                    <div className="text-[11px] text-slate-400 font-bold">
-                      (${computedStreetFareUsd.toFixed(2)} USD)
+
+                    {/* Dropdown Suggestions */}
+                    {streetHailSearchResults.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 max-h-48 overflow-y-auto divide-y divide-slate-700">
+                        {streetHailSearchResults.map((place, idx) => (
+                          <button
+                            key={place.id || idx}
+                            type="button"
+                            onClick={() => handleSelectStreetPlace(place)}
+                            className="w-full text-left p-2.5 hover:bg-slate-700/80 flex items-center justify-between text-xs text-white transition"
+                          >
+                            <div className="truncate pr-2">
+                              <div className="font-bold text-slate-100 truncate">{place.name}</div>
+                              <div className="text-[10px] text-slate-400 truncate">{place.address}</div>
+                            </div>
+                            <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded shrink-0">
+                              Select
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Distance Slider / Selector */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1 text-[11px] font-bold">
+                      <span className="text-slate-300">Trip Distance:</span>
+                      <span className="text-emerald-400 font-mono font-black">{streetHailDistanceKm.toFixed(1)} KM</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="25"
+                      step="0.5"
+                      value={streetHailDistanceKm}
+                      onChange={(e) => setStreetHailDistanceKm(parseFloat(e.target.value) || 1)}
+                      className="w-full accent-[#008751] cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Live Fare Display Card */}
+                  <div className="p-3.5 bg-slate-800/90 border border-slate-700 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Total Calculated Fare:</span>
+                      <div className="text-right">
+                        <div className="text-base font-black text-emerald-400 font-mono">
+                          {computedStreetFareSlsh.toLocaleString()} SLSH
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-bold">
+                          (${computedStreetFareUsd.toFixed(2)} USD)
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-700/60 text-[10.5px] text-slate-400 flex items-center justify-between">
+                      <span>1st KM: 12,000 SLSH ($1.20)</span>
+                      <span>Extra {Math.max(0, streetHailDistanceKm - 1).toFixed(1)} KM @ 7k/km</span>
                     </div>
                   </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-700/60 text-[10.5px] text-slate-400 flex items-center justify-between">
-                  <span>1st KM: 12,000 SLSH ($1.20)</span>
-                  <span>Extra {Math.max(0, streetHailDistanceKm - 1).toFixed(1)} KM @ 7k/km</span>
-                </div>
-              </div>
+                </>
+              )}
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 mb-1">Payment Method</label>
@@ -3003,12 +3169,15 @@ export const MobileDriverApp: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
+                    const isMeter = standingMode === 'open_meter';
                     if (createStreetHailRide) {
                       createStreetHailRide({
-                        name: streetPassengerName || 'Street Standing Passenger',
+                        name: streetPassengerName || 'Standing Passenger',
                         phone: streetPassengerPhone || '+252630000000',
-                        destinationAddress: streetDestination || 'Standing Pickup Destination',
-                        fareUsd: computedStreetFareUsd,
+                        destinationAddress: isMeter ? '' : (streetDestination || 'Standing Pickup Destination'),
+                        fareUsd: isMeter ? 1.20 : computedStreetFareUsd,
+                        distanceKm: isMeter ? 0.0 : streetHailDistanceKm,
+                        isLiveTaximeter: isMeter,
                         paymentMethod: streetPaymentMethod,
                       });
                     }
@@ -3021,10 +3190,79 @@ export const MobileDriverApp: React.FC = () => {
                   className="w-full py-3.5 rounded-2xl bg-[#008751] hover:bg-[#007445] text-white font-extrabold text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-900/40 flex items-center justify-center space-x-2 cursor-pointer active:scale-95"
                 >
                   <CheckCircle className="w-4 h-4 text-emerald-200" />
-                  <span>Start Standing Taxi Trip ({computedStreetFareSlsh.toLocaleString()} SLSH)</span>
+                  <span>
+                    {standingMode === 'open_meter'
+                      ? '🚀 Start Live Taximeter Trip (12,000 SLSH)'
+                      : `Start Standing Taxi Trip (${computedStreetFareSlsh.toLocaleString()} SLSH)`}
+                  </span>
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trip Completion & Payment Receipt Modal */}
+      {showTripSummaryModal && completedTripSummary && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn">
+          <div className="bg-slate-900 border-2 border-emerald-500/80 rounded-3xl p-6 max-w-sm w-full shadow-2xl text-white space-y-4">
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center mb-2">
+                <CheckCircle className="w-7 h-7" />
+              </div>
+              <h3 className="font-black text-lg text-white">Safarkii Wuu Dhammaaday</h3>
+              <p className="text-xs text-slate-400">Trip Completed • Collect Payment</p>
+            </div>
+
+            {/* Big Total Price Display */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-emerald-500/30 text-center space-y-1">
+              <span className="text-[11px] uppercase font-bold text-slate-400">Total Price to Collect</span>
+              <div className="text-2xl font-black text-emerald-400 font-mono">
+                {completedTripSummary.totalFareSlsh.toLocaleString()} SLSH
+              </div>
+              <div className="text-xs font-bold text-slate-400">
+                (${completedTripSummary.totalFareUsd.toFixed(2)} USD)
+              </div>
+            </div>
+
+            {/* Itemized Calculation Breakdown */}
+            <div className="bg-slate-800/80 p-3.5 rounded-2xl border border-slate-700 space-y-2 text-xs">
+              <div className="flex items-center justify-between text-slate-300">
+                <span>Distance Travelled:</span>
+                <span className="font-bold text-white font-mono">{completedTripSummary.distanceKm.toFixed(2)} KM</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-300">
+                <span>Trip Duration:</span>
+                <span className="font-bold text-white font-mono">{completedTripSummary.durationMins} mins</span>
+              </div>
+              <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400">
+                <span>1st KM (Flag Drop):</span>
+                <span className="font-bold text-slate-200 font-mono">12,000 SLSH ($1.20)</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span>Extra {completedTripSummary.extraKm.toFixed(2)} KM @ 7k/km:</span>
+                <span className="font-bold text-slate-200 font-mono">
+                  {Math.round(completedTripSummary.extraFareUsd * EXCHANGE_RATE_USD_TO_SLSH).toLocaleString()} SLSH
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span>Payment Method:</span>
+                <span className="font-bold text-emerald-400 uppercase">{completedTripSummary.paymentMethod}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowTripSummaryModal(false);
+                setCompletedTripSummary(null);
+                advanceDriverRideState();
+              }}
+              className="w-full py-4 rounded-2xl bg-[#008751] hover:bg-[#007445] text-white font-black text-sm uppercase tracking-wider transition shadow-lg shadow-emerald-900/40 flex items-center justify-center space-x-2 cursor-pointer active:scale-95"
+            >
+              <Check className="w-5 h-5" />
+              <span>Confirm Payment & Finish Trip</span>
+            </button>
           </div>
         </div>
       )}
