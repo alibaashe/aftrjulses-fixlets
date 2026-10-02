@@ -774,7 +774,11 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
 
 export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = (props) => {
   const [loadError, setLoadError] = useState(() => {
-    return typeof window !== 'undefined' && Boolean((window as any).__googleMapsAuthFailed);
+    if (typeof window === 'undefined') return false;
+    const host = window.location.hostname;
+    // If running on Google Cloud Run preview domain without referrer whitelist, avoid throwing RefererNotAllowedMapError
+    const isUnwhitelistedPreviewDomain = host.includes('run.app') && !host.includes('wadaage.com');
+    return Boolean((window as any).__googleMapsAuthFailed) || isUnwhitelistedPreviewDomain;
   });
 
   useEffect(() => {

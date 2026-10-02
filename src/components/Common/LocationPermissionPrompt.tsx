@@ -19,8 +19,15 @@ export const LocationPermissionPrompt: React.FC<LocationPermissionPromptProps> =
   const [statusMessage, setStatusMessage] = useState<string>('');
 
   useEffect(() => {
-    // Check if user already dismissed or granted in this session
-    const hasAsked = sessionStorage.getItem('wadaage_gps_prompt_shown');
+    // Check if user already granted or dismissed in localStorage (asks only ONCE)
+    const hasGrantedLocally = localStorage.getItem('wadaage_gps_permission_granted') === 'true';
+    const hasSeenPrompt = localStorage.getItem('wadaage_gps_prompt_shown') === 'true';
+
+    if (hasGrantedLocally) {
+      setPermissionState('granted');
+      fetchLiveGPSLocation(true);
+      return;
+    }
 
     if ('geolocation' in navigator) {
       if ('permissions' in navigator) {
@@ -29,22 +36,27 @@ export const LocationPermissionPrompt: React.FC<LocationPermissionPromptProps> =
           .then((res) => {
             if (res.state === 'granted') {
               setPermissionState('granted');
-              // Automatically fetch precise live location
+              localStorage.setItem('wadaage_gps_permission_granted', 'true');
+              localStorage.setItem('wadaage_gps_prompt_shown', 'true');
               fetchLiveGPSLocation(true);
             } else if (res.state === 'prompt') {
               setPermissionState('prompt');
-              if (!hasAsked) {
+              if (!hasSeenPrompt) {
                 setShowPrompt(true);
+              } else {
+                fetchLiveGPSLocation(true);
               }
             } else if (res.state === 'denied') {
               setPermissionState('denied');
             }
           })
           .catch(() => {
-            if (!hasAsked) setShowPrompt(true);
+            if (!hasSeenPrompt) setShowPrompt(true);
+            else fetchLiveGPSLocation(true);
           });
       } else {
-        if (!hasAsked) setShowPrompt(true);
+        if (!hasSeenPrompt) setShowPrompt(true);
+        else fetchLiveGPSLocation(true);
       }
     } else {
       setPermissionState('unsupported');
@@ -77,7 +89,8 @@ export const LocationPermissionPrompt: React.FC<LocationPermissionPromptProps> =
         setIsLocating(false);
         setPermissionState('granted');
         setShowPrompt(false);
-        sessionStorage.setItem('wadaage_gps_prompt_shown', 'true');
+        localStorage.setItem('wadaage_gps_permission_granted', 'true');
+        localStorage.setItem('wadaage_gps_prompt_shown', 'true');
 
         const { latitude, longitude, accuracy } = position.coords;
 

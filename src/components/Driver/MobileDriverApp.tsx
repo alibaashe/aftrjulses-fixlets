@@ -308,7 +308,7 @@ export const MobileDriverApp: React.FC = () => {
     if (typeof window !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          console.log('[MobileDriverApp] Real-time Hardware GPS acquired on first open:', pos.coords.latitude, pos.coords.longitude);
+          console.log('[MobileDriverApp] Real-time Hardware GPS acquired on open:', pos.coords.latitude, pos.coords.longitude);
           updateDriverLiveCoordinates(
             pos.coords.latitude,
             pos.coords.longitude,
@@ -317,7 +317,6 @@ export const MobileDriverApp: React.FC = () => {
             pos.coords.speed || 0,
             true
           );
-          // Set driver to online and available immediately
           toggleDriverOnline(true);
         },
         (err) => {
@@ -332,6 +331,71 @@ export const MobileDriverApp: React.FC = () => {
       toggleDriverOnline(true);
     }
 
+    // Continuous real-time GPS tracking stream (runs in foreground & background)
+    let watchId: number | null = null;
+    if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          updateDriverLiveCoordinates(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            pos.coords.accuracy,
+            pos.coords.heading || 0,
+            pos.coords.speed || 0,
+            true
+          );
+        },
+        (err) => {
+          console.warn('[MobileDriverApp] watchPosition error:', err.message);
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+      );
+    }
+
+    // Background & Minimized GPS reporting loop (keeps reporting real location points every 5 seconds even when minimized)
+    const backgroundGpsInterval = setInterval(() => {
+      if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            updateDriverLiveCoordinates(
+              pos.coords.latitude,
+              pos.coords.longitude,
+              pos.coords.accuracy,
+              pos.coords.heading || 0,
+              pos.coords.speed || 0,
+              true
+            );
+          },
+          () => {},
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 6000 }
+        );
+      }
+    }, 5000);
+
+    // Sync GPS immediately when returning to the app
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        notificationService.requestWakeLock();
+        if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              updateDriverLiveCoordinates(
+                pos.coords.latitude,
+                pos.coords.longitude,
+                pos.coords.accuracy,
+                pos.coords.heading || 0,
+                pos.coords.speed || 0,
+                true
+              );
+            },
+            () => {},
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+          );
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     // Listen to background service worker wake-up messages
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       const handleSwMsg = (e: MessageEvent) => {
@@ -340,8 +404,19 @@ export const MobileDriverApp: React.FC = () => {
         }
       };
       navigator.serviceWorker.addEventListener('message', handleSwMsg);
-      return () => navigator.serviceWorker.removeEventListener('message', handleSwMsg);
+      return () => {
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        clearInterval(backgroundGpsInterval);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        navigator.serviceWorker.removeEventListener('message', handleSwMsg);
+      };
     }
+
+    return () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      clearInterval(backgroundGpsInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -358,11 +433,15 @@ export const MobileDriverApp: React.FC = () => {
     };
   }, [driverModeOnline]);
 
-  // Trigger push notification, vibration, and background alert on incoming ride request
+  // Trigger loud sound ringtone, vibration, and background alert on incoming ride request
   useEffect(() => {
     const isDriverEngaged = currentRide && ['accepted', 'driver_arrived', 'in_progress'].includes(currentRide.status);
     if (incomingDriverRequest && !isDriverEngaged) {
       notificationService.requestWakeLock();
+      notificationService.startEmergencyOrderRingtone();
+      notificationService.vibrateDevice([600, 200, 600, 200, 800]);
+      sounds.playIncomingPing();
+
       const fareUsd = incomingDriverRequest.totalFare || 2.50;
       const fareSos = Math.round(fareUsd * EXCHANGE_RATE_USD_TO_SLSH);
 
