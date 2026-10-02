@@ -773,15 +773,22 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
 };
 
 export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = (props) => {
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState(() => {
+    return typeof window !== 'undefined' && Boolean((window as any).__googleMapsAuthFailed);
+  });
 
   useEffect(() => {
-    // 1. Listen for Google Maps auth failure callback
+    // 1. Listen for Google Maps auth failure callback or custom event
     const handleAuthFailure = () => {
       console.warn('Google Maps API authentication/load failed. Falling back to MapLibre.');
+      if (typeof window !== 'undefined') {
+        (window as any).__googleMapsAuthFailed = true;
+      }
       setLoadError(true);
     };
+
     (window as any).gm_authFailure = handleAuthFailure;
+    window.addEventListener('google-maps-auth-failure', handleAuthFailure);
 
     // 2. Hide Google error modal dialog overlay if inserted into DOM
     const styleEl = document.createElement('style');
@@ -800,15 +807,13 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = (props)
       const errModal = document.querySelector('.gm-err-container, .gm-err-modal, .gm-err-content');
       if (errModal) {
         console.warn('Google Maps error container detected in DOM. Triggering fallback to MapLibre.');
-        setLoadError(true);
+        handleAuthFailure();
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
-      if ((window as any).gm_authFailure === handleAuthFailure) {
-        delete (window as any).gm_authFailure;
-      }
+      window.removeEventListener('google-maps-auth-failure', handleAuthFailure);
       observer.disconnect();
       if (styleEl.parentNode) {
         styleEl.parentNode.removeChild(styleEl);
