@@ -35,6 +35,7 @@ import { ShareTripModal } from './ShareTripModal';
 import { ColorBeaconModal } from '../Common/ColorBeaconModal';
 import { RealisticCarGraphic } from '../Common/RealisticCarGraphic';
 import { resolveVehicleColor } from '../../utils/vehicleColors';
+import { WaitingTimeMeter } from '../Common/WaitingTimeMeter';
 
 interface ActiveRideCardProps {
   onOpenSafetyModal: () => void;
@@ -333,6 +334,12 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
                   <span className="font-mono">-${(Number(currentRide.discountAmount) || 0).toFixed(2)} USD</span>
                 </div>
               )}
+              {((currentRide.waitingSeconds || 0) > 0 || currentRide.isWaitingActive) && (
+                <div className="flex justify-between text-amber-600 dark:text-amber-400 font-semibold">
+                  <span>Wakhtiga Sugitaanka (Waiting: {currentRide.waitingMinutes || Math.ceil((currentRide.waitingSeconds || 0) / 60)} daq @ 500 SLSH/daq):</span>
+                  <span className="font-mono font-bold">+${(currentRide.waitingFeeUsd || 0).toFixed(2)} USD (+{((currentRide.waitingFeeSlsh !== undefined ? currentRide.waitingFeeSlsh : (currentRide.waitingMinutes || 1) * 500)).toLocaleString()} SLSH)</span>
+                </div>
+              )}
               <div className="flex justify-between pt-1 border-t border-slate-200 dark:border-slate-700 font-black text-slate-900 dark:text-white">
                 <span>Payment Mode:</span>
                 <span className="uppercase text-emerald-600 dark:text-emerald-400">{currentRide.paymentMethod || 'cash'}</span>
@@ -340,6 +347,11 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
             </div>
           )}
         </div>
+
+        {/* Live In-Trip Waiting Meter for Normal Taxi */}
+        {(currentRide.status === 'driver_arrived' || currentRide.status === 'in_progress') && (
+          <WaitingTimeMeter isDriverView={false} />
+        )}
 
         {/* Searching Animation State */}
         {currentRide.status === 'searching' && (

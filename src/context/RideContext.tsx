@@ -288,6 +288,10 @@ interface RideContextType {
   validateWadaageMatch: (currentTrip: any, newRequest: any, driverLoc?: { lat: number; lng: number }, options?: any) => ValidateWadaageMatchResult;
   createStreetHailRide?: (passengerData: { name?: string; phone?: string; destinationAddress?: string; fareUsd?: number; distanceKm?: number; isLiveTaximeter?: boolean; paymentMethod?: 'cash' | 'wallet' }) => void;
   updateTaximeterTraveledKm?: (addedKm: number) => void;
+  // Normal Taxi In-Trip Waiting Meter (500 SLSH / minute)
+  toggleWaitingTime: (rideId?: string) => void;
+  updateWaitingTime: (seconds: number, rideId?: string) => void;
+  resetWaitingTime: (rideId?: string) => void;
   // User & Driver Direct Registration (with WhatsApp OTP)
   registerRider: (userData: { name: string; phone: string; email?: string; password?: string }) => AuthUser;
   updateUserPassword: (userIdOrPhone: string, newPassword: string) => Promise<boolean>;
@@ -3783,7 +3787,9 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Calculate normal taxi price: 1st KM = $1.20 (12,000 SLSH), each subsequent KM = $0.70 (7,000 SLSH)
     const chargeableKm = Math.max(0, newTraveled - 1.0);
-    const updatedFare = Math.round((1.20 + (chargeableKm * 0.70)) * 100) / 100;
+    const baseRideFare = Math.round((1.20 + (chargeableKm * 0.70)) * 100) / 100;
+    const waitingFeeUsd = Number(currentRide.waitingFeeUsd || 0);
+    const updatedFare = Math.round((baseRideFare + waitingFeeUsd) * 100) / 100;
 
     const updated: RideRequest = {
       ...currentRide,
@@ -3795,6 +3801,125 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     saveRideToFirestore(updated);
     broadcastRideEvent('RIDE_STATUS_UPDATED', updated);
   };
+
+  // Normal Taxi In-Trip Waiting Meter (500 SLSH per minute)
+  const toggleWaitingTime = (rideId?: string) => {
+    const targetRide = currentRide || (rideId ? allPlatformRides.find(r => r.id === rideId) : null);
+    if (!targetRide) return;
+
+    const nextIsActive = !targetRide.isWaitingActive;
+    const currentSeconds = targetRide.waitingSeconds || 0;
+    const waitingMinutes = currentSeconds > 0 ? Math.ceil(currentSeconds / 60) : (nextIsActive ? 1 : 0);
+    const waitingFeeSlsh = waitingMinutes * 500;
+    const waitingFeeUsd = Number((waitingFeeSlsh / EXCHANGE_RATE_USD_TO_SLSH).toFixed(2));
+
+    // Calculate updated total fare including waiting charges
+    const initialBaseAndDistance = Number(targetRide.baseFare || 1.20) + (Number(targetRide.distanceKm || 1) * 0.80) - Number(targetRide.discountAmount || 0);
+    const totalFare = Number((Math.max(initialBaseAndDistance, 1.20) + waitingFeeUsd).toFixed(2));
+
+    const updated: RideRequest = {
+      ...targetRide,
+      isWaitingActive: nextIsActive,
+      waitingStartedAt: nextIsActive ? Date.now() : targetRide.waitingStartedAt,
+      waitingSeconds: currentSeconds,
+      waitingMinutes,
+      waitingFeeSlsh,
+      waitingFeeUsd,
+      totalFare: Math.max(Number(targetRide.totalFare || 0), totalFare),
+    };
+
+    if (nextIsActive) {
+      sounds.playAcceptedChime();
+    }
+
+    setCurrentRide(updated);
+    saveRideToFirestore(updated);
+    syncRideToHostinger(updated);
+    broadcastRideEvent('RIDE_STATUS_UPDATED', updated);
+  };
+
+  const updateWaitingTime = (seconds: number, rideId?: string) => {
+    const targetRide = currentRide || (rideId ? allPlatformRides.find(r => r.id === rideId) : null);
+    if (!targetRide) return;
+
+    const safeSeconds = Math.max(0, seconds);
+    const waitingMinutes = safeSeconds > 0 ? Math.ceil(safeSeconds / 60) : 0;
+    const waitingFeeSlsh = waitingMinutes * 500;
+    const waitingFeeUsd = Number((waitingFeeSlsh / EXCHANGE_RATE_USD_TO_SLSH).toFixed(2));
+
+    const prevWaitingFeeUsd = Number(targetRide.waitingFeeUsd || 0);
+    const baseWithoutPrevWaiting = Math.max(1.20, Number(targetRide.totalFare || 2.50) - prevWaitingFeeUsd);
+    const newTotalFare = Number((baseWithoutPrevWaiting + waitingFeeUsd).toFixed(2));
+
+    const updated: RideRequest = {
+      ...targetRide,
+      waitingSeconds: safeSeconds,
+      waitingMinutes,
+      waitingFeeSlsh,
+      waitingFeeUsd,
+      totalFare: newTotalFare,
+    };
+
+    setCurrentRide(updated);
+    saveRideToFirestore(updated);
+    syncRideToHostinger(updated);
+    broadcastRideEvent('RIDE_STATUS_UPDATED', updated);
+  };
+
+  const resetWaitingTime = (rideId?: string) => {
+    const targetRide = currentRide || (rideId ? allPlatformRides.find(r => r.id === rideId) : null);
+    if (!targetRide) return;
+
+    const prevWaitingFeeUsd = Number(targetRide.waitingFeeUsd || 0);
+    const newTotalFare = Number(Math.max(1.20, Number(targetRide.totalFare || 2.50) - prevWaitingFeeUsd).toFixed(2));
+
+    const updated: RideRequest = {
+      ...targetRide,
+      isWaitingActive: false,
+      waitingSeconds: 0,
+      waitingMinutes: 0,
+      waitingFeeSlsh: 0,
+      waitingFeeUsd: 0,
+      totalFare: newTotalFare,
+    };
+
+    setCurrentRide(updated);
+    saveRideToFirestore(updated);
+    syncRideToHostinger(updated);
+    broadcastRideEvent('RIDE_STATUS_UPDATED', updated);
+  };
+
+  // Active Waiting Time Real-Time 1-Second Ticker for Normal Taxi (500 SLSH/min)
+  useEffect(() => {
+    if (!currentRide?.isWaitingActive || currentRide?.status === 'completed' || currentRide?.status === 'cancelled') {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setCurrentRide((prev) => {
+        if (!prev || !prev.isWaitingActive) return prev;
+        const nextSeconds = (prev.waitingSeconds || 0) + 1;
+        const waitingMinutes = Math.ceil(nextSeconds / 60);
+        const waitingFeeSlsh = waitingMinutes * 500;
+        const waitingFeeUsd = Number((waitingFeeSlsh / EXCHANGE_RATE_USD_TO_SLSH).toFixed(2));
+
+        const prevFeeUsd = Number(prev.waitingFeeUsd || 0);
+        const baseWithoutPrev = Math.max(1.20, Number(prev.totalFare || 2.50) - prevFeeUsd);
+        const newTotalFare = Number((baseWithoutPrev + waitingFeeUsd).toFixed(2));
+
+        return {
+          ...prev,
+          waitingSeconds: nextSeconds,
+          waitingMinutes,
+          waitingFeeSlsh,
+          waitingFeeUsd,
+          totalFare: newTotalFare,
+        };
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [currentRide?.isWaitingActive, currentRide?.status]);
 
   // Dispatch Batch Pool Ride Immediately (Bypass 60s window)
   const dispatchBatchPoolRideNow = () => {
@@ -5862,6 +5987,9 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         bookRide,
         createStreetHailRide,
         updateTaximeterTraveledKm,
+        toggleWaitingTime,
+        updateWaitingTime,
+        resetWaitingTime,
         acceptBid,
         cancelRide,
         acceptRideByDriver,

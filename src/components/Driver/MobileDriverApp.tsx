@@ -68,6 +68,7 @@ import { DriverFatigueModal } from './DriverFatigueModal';
 import { VehicleHealthModal } from './VehicleHealthModal';
 import { DriverRegistrationModal } from './DriverRegistrationModal';
 import { LocationSetupModal } from '../Location/LocationSetupModal';
+import { WaitingTimeMeter } from '../Common/WaitingTimeMeter';
 import { SomalilandFlag } from '../Common/SomalilandFlag';
 import { ChatModal } from '../Passenger/ChatModal';
 import { WadaageDriverDashboard } from './WadaageDriverDashboard';
@@ -1465,6 +1466,11 @@ export const MobileDriverApp: React.FC = () => {
                         </div>
                       )}
 
+                      {/* 1-Touch Waiting Time Meter (500 SLSH / minute) */}
+                      {(currentRide.status === 'driver_arrived' || currentRide.status === 'in_progress') && (
+                        <WaitingTimeMeter isDriverView={true} />
+                      )}
+
                       <button
                         type="button"
                         id="driver-btn-primary-ride-action"
@@ -1481,7 +1487,8 @@ export const MobileDriverApp: React.FC = () => {
                             const finalDist = Number((currentRide.liveTraveledKm ?? (currentRide.isLiveTaximeter ? liveMeterKm : (currentRide.distanceKm || 1.0))).toFixed(2));
                             const extraDistance = Math.max(0, finalDist - 1.0);
                             const extraCostUsd = Math.round(extraDistance * 0.70 * 100) / 100;
-                            const totalUsd = Math.round((1.20 + extraCostUsd) * 100) / 100;
+                            const waitingFeeUsd = Number(currentRide.waitingFeeUsd || 0);
+                            const totalUsd = Math.round((1.20 + extraCostUsd + waitingFeeUsd) * 100) / 100;
                             const totalSlsh = Math.round(totalUsd * EXCHANGE_RATE_USD_TO_SLSH);
 
                             setCompletedTripSummary({
