@@ -98,24 +98,35 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
   const centerStartRef = useRef<{ lat: number; lng: number }>({ lat: 9.5600, lng: 44.0650 });
   const hasMovedRef = useRef(false);
 
-  // Container dimensions
+  // Container dimensions with robust fallback
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
-    width: 800,
-    height: 600,
+    width: typeof window !== 'undefined' ? window.innerWidth : 800,
+    height: typeof window !== 'undefined' ? window.innerHeight : 600,
   });
 
   useEffect(() => {
     const updateDimensions = () => {
       if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
         setDimensions({
-          width: containerRef.current.clientWidth || 800,
-          height: containerRef.current.clientHeight || 600,
+          width: rect.width > 0 ? rect.width : window.innerWidth || 800,
+          height: rect.height > 0 ? rect.height : window.innerHeight || 600,
         });
       }
     };
     updateDimensions();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      resizeObserver = new ResizeObserver(updateDimensions);
+      resizeObserver.observe(containerRef.current);
+    }
+
     window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
+    return () => {
+      window.removeEventListener('resize', updateDimensions);
+      if (resizeObserver) resizeObserver.disconnect();
+    };
   }, []);
 
   // Update center when pickup location changes initially
@@ -301,7 +312,7 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
   );
 
   const tiles = useMemo(() => {
-    const list: Array<{ x: number; y: number; left: number; top: number; key: string; url: string }> = [];
+    const list: Array<{ x: number; y: number; left: number; top: number; key: string; url: string; fallbackUrl: string }> = [];
     const tileStartX = Math.max(0, minTile.x - 1);
     const tileEndX = maxTile.x + 1;
     const tileStartY = Math.max(0, maxTile.y - 1);
@@ -314,11 +325,15 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
         const screenX = tilePixelX - centerPixel.x + dimensions.width / 2;
         const screenY = tilePixelY - centerPixel.y + dimensions.height / 2;
 
-        let url = `https://tile.openstreetmap.org/${zoom}/${tx}/${ty}.png`;
+        let url = `https://mt1.google.com/vt/lyrs=m&x=${tx}&y=${ty}&z=${zoom}&hl=en`;
+        let fallbackUrl = `https://a.basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${tx}/${ty}.png`;
+
         if (mapLayer === 'satellite') {
-          url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${tx}`;
+          url = `https://mt1.google.com/vt/lyrs=y&x=${tx}&y=${ty}&z=${zoom}&hl=en`;
+          fallbackUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${tx}`;
         } else if (mapLayer === 'dark') {
           url = `https://a.basemaps.cartocdn.com/dark_all/${zoom}/${tx}/${ty}.png`;
+          fallbackUrl = `https://mt1.google.com/vt/lyrs=m&x=${tx}&y=${ty}&z=${zoom}&hl=en`;
         }
 
         list.push({
@@ -328,6 +343,7 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
           top: screenY,
           key: `${zoom}_${tx}_${ty}`,
           url,
+          fallbackUrl,
         });
       }
     }
@@ -374,8 +390,15 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
   return (
     <div
       ref={containerRef}
-      className="w-full relative overflow-hidden select-none font-sans bg-slate-950 cursor-grab active:cursor-grabbing"
-      style={{ height }}
+      className="w-full relative overflow-hidden select-none font-sans bg-[#F2EFE9] dark:bg-[#1E293B] cursor-grab active:cursor-grabbing"
+      style={{
+        height,
+        backgroundImage:
+          mapLayer === 'roadmap'
+            ? 'radial-gradient(#CBD5E1 1px, transparent 1px)'
+            : undefined,
+        backgroundSize: '24px 24px',
+      }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -391,12 +414,17 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
             key={t.key}
             src={t.url}
             alt="map-tile"
-            loading="lazy"
-            className="absolute w-[256px] h-[256px] select-none pointer-events-none transition-opacity duration-300"
+            loading="eager"
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (target.src !== t.fallbackUrl) {
+                target.src = t.fallbackUrl;
+              }
+            }}
+            className="absolute w-[256px] h-[256px] select-none pointer-events-none transition-opacity duration-200"
             style={{
               left: `${t.left}px`,
               top: `${t.top}px`,
-              filter: mapLayer === 'roadmap' ? 'contrast(1.05) saturate(1.1)' : undefined,
             }}
           />
         ))}
