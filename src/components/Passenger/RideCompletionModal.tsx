@@ -24,6 +24,26 @@ export const RideCompletionModal: React.FC = () => {
   };
   const finalTip = customTip ? parseFloat(customTip) || 0 : tip;
 
+  // 1. Separate Dropoff Ride Price (Base + Distance)
+  const isShare = currentRide.category === 'wadaage_share' || currentRide.isShared;
+  const ratePerKm = isShare ? 0.40 : 0.80;
+  const dropoffFareUsd = currentRide.dropoffFareUsd !== undefined
+    ? currentRide.dropoffFareUsd
+    : Number((Number(currentRide.baseFare || 1.20) + (Number(currentRide.distanceKm || 1) * ratePerKm) - Number(currentRide.discountAmount || 0)).toFixed(2));
+  const dropoffFareSlsh = currentRide.dropoffFareSlsh !== undefined
+    ? currentRide.dropoffFareSlsh
+    : Math.round(dropoffFareUsd * 8500);
+
+  // 2. Separate Waiting Time Fee (500 SLSH / minute)
+  const waitingSecs = Number(currentRide.waitingSeconds || 0);
+  const waitingMinutes = currentRide.waitingMinutes || (waitingSecs > 0 ? Math.ceil(waitingSecs / 60) : 0);
+  const waitingFeeSlsh = currentRide.waitingFeeSlsh !== undefined ? currentRide.waitingFeeSlsh : waitingMinutes * 500;
+  const waitingFeeUsd = currentRide.waitingFeeUsd !== undefined ? Number(currentRide.waitingFeeUsd) : Number((waitingFeeSlsh / 8500).toFixed(2));
+
+  // 3. Final Total Adding Both
+  const finalTotalUsd = Math.round((dropoffFareUsd + waitingFeeUsd) * 100) / 100;
+  const finalTotalSlsh = Math.round(dropoffFareSlsh + waitingFeeSlsh);
+
   const handleInstantClose = (e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
@@ -87,20 +107,58 @@ export const RideCompletionModal: React.FC = () => {
           </p>
         </div>
 
-        {/* Fare Summary */}
-        <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-          <div className="text-left">
-            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">
-              {language === 'so' ? 'Wadarta Lacagta' : 'Total Fare Paid'}
+        {/* Itemized Fare Summary Card - Separating Dropoff & Waiting Fee */}
+        <div className="bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 text-left space-y-2.5">
+          {/* 1. Dropoff Trip Price */}
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-600 dark:text-slate-300 font-bold flex items-center gap-1.5">
+              <span>🚗</span>
+              <span>Qiimaha Safarka (Dropoff Price):</span>
             </span>
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              Via {(currentRide.paymentMethod || 'cash').toUpperCase()}
-            </span>
+            <div className="text-right">
+              <span className="font-mono font-black text-slate-900 dark:text-white">
+                {dropoffFareSlsh.toLocaleString()} SLSH
+              </span>
+              <span className="text-[10px] text-slate-400 block font-semibold">
+                (${dropoffFareUsd.toFixed(2)} USD)
+              </span>
+            </div>
           </div>
-          <div className="text-right">
-            <span className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400">
-              {formatCurrency(Number(currentRide.totalFare) || 0)}
+
+          {/* 2. Waiting Time Fee */}
+          <div className="flex items-center justify-between text-xs">
+            <span className={`font-bold flex items-center gap-1.5 ${waitingMinutes > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500'}`}>
+              <span>⏱️</span>
+              <span>Sugitaanka ({waitingMinutes} daq @ 500 SLSH):</span>
             </span>
+            <div className="text-right">
+              <span className={`font-mono font-black ${waitingMinutes > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500'}`}>
+                +{waitingFeeSlsh.toLocaleString()} SLSH
+              </span>
+              <span className="text-[10px] text-slate-400 block font-semibold">
+                (+${waitingFeeUsd.toFixed(2)} USD)
+              </span>
+            </div>
+          </div>
+
+          {/* 3. Final Total Sum */}
+          <div className="pt-2 border-t border-emerald-500/30 flex items-center justify-between bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20">
+            <div>
+              <span className="text-[10px] text-emerald-800 dark:text-emerald-300 block uppercase font-black tracking-wider">
+                {language === 'so' ? 'Wadarta Guud ee La Bixiyey' : 'Final Total Paid'}
+              </span>
+              <span className="text-[10px] font-semibold text-slate-500">
+                Via {(currentRide.paymentMethod || 'cash').toUpperCase()}
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-lg sm:text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                {finalTotalSlsh.toLocaleString()} SLSH
+              </span>
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
+                (${finalTotalUsd.toFixed(2)} USD)
+              </span>
+            </div>
           </div>
         </div>
 
@@ -248,15 +306,15 @@ export const RideCompletionModal: React.FC = () => {
 
             <div className="space-y-1.5 text-xs border-b pb-3">
               <div className="flex justify-between">
-                <span className="text-slate-600">Base & Distance Fare:</span>
-                <span>{formatCurrency(currentRide.baseFare + currentRide.distanceKm * 1.25)}</span>
+                <span className="text-slate-600">Qiimaha Safarka (Dropoff Ride Fare):</span>
+                <span className="font-bold">{dropoffFareSlsh.toLocaleString()} SLSH (${dropoffFareUsd.toFixed(2)})</span>
               </div>
-              {currentRide.surgeMultiplier > 1.0 && (
-                <div className="flex justify-between text-amber-600">
-                  <span>Surge Multiplier ({currentRide.surgeMultiplier}x):</span>
-                  <span>Applied</span>
-                </div>
-              )}
+              <div className="flex justify-between">
+                <span className="text-slate-600">Qiimaha Sugitaanka ({waitingMinutes} daq @ 500 SLSH):</span>
+                <span className={`font-bold ${waitingMinutes > 0 ? 'text-amber-600' : 'text-slate-600'}`}>
+                  +{waitingFeeSlsh.toLocaleString()} SLSH (+${waitingFeeUsd.toFixed(2)})
+                </span>
+              </div>
               {currentRide.discountAmount > 0 && (
                 <div className="flex justify-between text-emerald-600 font-semibold">
                   <span>Discount / Shared Savings:</span>
@@ -273,9 +331,14 @@ export const RideCompletionModal: React.FC = () => {
 
             <div className="flex justify-between items-center pt-1 text-sm font-black">
               <span>Total Paid ({((currentRide.paymentMethod || 'cash')).toUpperCase()}):</span>
-              <span className="text-emerald-600 text-lg">
-                {formatCurrency((Number(currentRide.totalFare) || 0) + finalTip)}
-              </span>
+              <div className="text-right">
+                <span className="text-emerald-600 text-lg block font-mono">
+                  {Math.round(finalTotalSlsh + (finalTip * 8500)).toLocaleString()} SLSH
+                </span>
+                <span className="text-[11px] text-slate-500 font-bold block">
+                  (${Number(finalTotalUsd + finalTip).toFixed(2)} USD)
+                </span>
+              </div>
             </div>
 
             <button

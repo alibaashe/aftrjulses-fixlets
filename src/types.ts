@@ -253,6 +253,8 @@ export interface RideRequest {
   isLiveTaximeter?: boolean;
   liveTraveledKm?: number;
   startCoordinates?: { lat: number; lng: number };
+  dropoffFareUsd?: number;
+  dropoffFareSlsh?: number;
   waitingSeconds?: number;
   waitingMinutes?: number;
   waitingFeeSlsh?: number;

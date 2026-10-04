@@ -3787,14 +3787,17 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Calculate normal taxi price: 1st KM = $1.20 (12,000 SLSH), each subsequent KM = $0.70 (7,000 SLSH)
     const chargeableKm = Math.max(0, newTraveled - 1.0);
-    const baseRideFare = Math.round((1.20 + (chargeableKm * 0.70)) * 100) / 100;
+    const dropoffFareUsd = Math.round((1.20 + (chargeableKm * 0.70)) * 100) / 100;
+    const dropoffFareSlsh = Math.round(dropoffFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
     const waitingFeeUsd = Number(currentRide.waitingFeeUsd || 0);
-    const updatedFare = Math.round((baseRideFare + waitingFeeUsd) * 100) / 100;
+    const updatedFare = Math.round((dropoffFareUsd + waitingFeeUsd) * 100) / 100;
 
     const updated: RideRequest = {
       ...currentRide,
       liveTraveledKm: newTraveled,
       distanceKm: newTraveled,
+      dropoffFareUsd,
+      dropoffFareSlsh,
       totalFare: updatedFare,
     };
     setCurrentRide(updated);
@@ -3813,9 +3816,15 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const waitingFeeSlsh = waitingMinutes * 500;
     const waitingFeeUsd = Number((waitingFeeSlsh / EXCHANGE_RATE_USD_TO_SLSH).toFixed(2));
 
-    // Calculate updated total fare including waiting charges
-    const initialBaseAndDistance = Number(targetRide.baseFare || 1.20) + (Number(targetRide.distanceKm || 1) * 0.80) - Number(targetRide.discountAmount || 0);
-    const totalFare = Number((Math.max(initialBaseAndDistance, 1.20) + waitingFeeUsd).toFixed(2));
+    // Calculate separated dropoff ride price
+    const isShare = targetRide.category === 'wadaage_share' || targetRide.isShared;
+    const ratePerKm = isShare ? 0.40 : 0.80;
+    const dropoffFareUsd = targetRide.dropoffFareUsd !== undefined
+      ? targetRide.dropoffFareUsd
+      : Number((Number(targetRide.baseFare || 1.20) + (Number(targetRide.distanceKm || 1) * ratePerKm) - Number(targetRide.discountAmount || 0)).toFixed(2));
+    const dropoffFareSlsh = Math.round(dropoffFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
+
+    const totalFare = Number((dropoffFareUsd + waitingFeeUsd).toFixed(2));
 
     const updated: RideRequest = {
       ...targetRide,
@@ -3825,7 +3834,9 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       waitingMinutes,
       waitingFeeSlsh,
       waitingFeeUsd,
-      totalFare: Math.max(Number(targetRide.totalFare || 0), totalFare),
+      dropoffFareUsd,
+      dropoffFareSlsh,
+      totalFare,
     };
 
     if (nextIsActive) {
@@ -3847,9 +3858,14 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const waitingFeeSlsh = waitingMinutes * 500;
     const waitingFeeUsd = Number((waitingFeeSlsh / EXCHANGE_RATE_USD_TO_SLSH).toFixed(2));
 
-    const prevWaitingFeeUsd = Number(targetRide.waitingFeeUsd || 0);
-    const baseWithoutPrevWaiting = Math.max(1.20, Number(targetRide.totalFare || 2.50) - prevWaitingFeeUsd);
-    const newTotalFare = Number((baseWithoutPrevWaiting + waitingFeeUsd).toFixed(2));
+    const isShare = targetRide.category === 'wadaage_share' || targetRide.isShared;
+    const ratePerKm = isShare ? 0.40 : 0.80;
+    const dropoffFareUsd = targetRide.dropoffFareUsd !== undefined
+      ? targetRide.dropoffFareUsd
+      : Number((Number(targetRide.baseFare || 1.20) + (Number(targetRide.distanceKm || 1) * ratePerKm) - Number(targetRide.discountAmount || 0)).toFixed(2));
+    const dropoffFareSlsh = Math.round(dropoffFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
+
+    const newTotalFare = Number((dropoffFareUsd + waitingFeeUsd).toFixed(2));
 
     const updated: RideRequest = {
       ...targetRide,
@@ -3857,6 +3873,8 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       waitingMinutes,
       waitingFeeSlsh,
       waitingFeeUsd,
+      dropoffFareUsd,
+      dropoffFareSlsh,
       totalFare: newTotalFare,
     };
 
@@ -3870,8 +3888,12 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targetRide = currentRide || (rideId ? allPlatformRides.find(r => r.id === rideId) : null);
     if (!targetRide) return;
 
-    const prevWaitingFeeUsd = Number(targetRide.waitingFeeUsd || 0);
-    const newTotalFare = Number(Math.max(1.20, Number(targetRide.totalFare || 2.50) - prevWaitingFeeUsd).toFixed(2));
+    const isShare = targetRide.category === 'wadaage_share' || targetRide.isShared;
+    const ratePerKm = isShare ? 0.40 : 0.80;
+    const dropoffFareUsd = targetRide.dropoffFareUsd !== undefined
+      ? targetRide.dropoffFareUsd
+      : Number((Number(targetRide.baseFare || 1.20) + (Number(targetRide.distanceKm || 1) * ratePerKm) - Number(targetRide.discountAmount || 0)).toFixed(2));
+    const dropoffFareSlsh = Math.round(dropoffFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
 
     const updated: RideRequest = {
       ...targetRide,
@@ -3880,7 +3902,9 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       waitingMinutes: 0,
       waitingFeeSlsh: 0,
       waitingFeeUsd: 0,
-      totalFare: newTotalFare,
+      dropoffFareUsd,
+      dropoffFareSlsh,
+      totalFare: dropoffFareUsd,
     };
 
     setCurrentRide(updated);
@@ -3903,9 +3927,14 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const waitingFeeSlsh = waitingMinutes * 500;
         const waitingFeeUsd = Number((waitingFeeSlsh / EXCHANGE_RATE_USD_TO_SLSH).toFixed(2));
 
-        const prevFeeUsd = Number(prev.waitingFeeUsd || 0);
-        const baseWithoutPrev = Math.max(1.20, Number(prev.totalFare || 2.50) - prevFeeUsd);
-        const newTotalFare = Number((baseWithoutPrev + waitingFeeUsd).toFixed(2));
+        const isShare = prev.category === 'wadaage_share' || prev.isShared;
+        const ratePerKm = isShare ? 0.40 : 0.80;
+        const dropoffFareUsd = prev.dropoffFareUsd !== undefined
+          ? prev.dropoffFareUsd
+          : Number((Number(prev.baseFare || 1.20) + (Number(prev.distanceKm || 1) * ratePerKm) - Number(prev.discountAmount || 0)).toFixed(2));
+        const dropoffFareSlsh = Math.round(dropoffFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
+
+        const newTotalFare = Number((dropoffFareUsd + waitingFeeUsd).toFixed(2));
 
         return {
           ...prev,
@@ -3913,6 +3942,8 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
           waitingMinutes,
           waitingFeeSlsh,
           waitingFeeUsd,
+          dropoffFareUsd,
+          dropoffFareSlsh,
           totalFare: newTotalFare,
         };
       });

@@ -170,9 +170,11 @@ export const MobileDriverApp: React.FC = () => {
   const [completedTripSummary, setCompletedTripSummary] = useState<{
     distanceKm: number;
     durationMins: number;
-    baseFareUsd: number;
-    extraKm: number;
-    extraFareUsd: number;
+    dropoffFareUsd: number;
+    dropoffFareSlsh: number;
+    waitingMinutes: number;
+    waitingFeeUsd: number;
+    waitingFeeSlsh: number;
     totalFareUsd: number;
     totalFareSlsh: number;
     paymentMethod: string;
@@ -1487,16 +1489,33 @@ export const MobileDriverApp: React.FC = () => {
                             const finalDist = Number((currentRide.liveTraveledKm ?? (currentRide.isLiveTaximeter ? liveMeterKm : (currentRide.distanceKm || 1.0))).toFixed(2));
                             const extraDistance = Math.max(0, finalDist - 1.0);
                             const extraCostUsd = Math.round(extraDistance * 0.70 * 100) / 100;
-                            const waitingFeeUsd = Number(currentRide.waitingFeeUsd || 0);
-                            const totalUsd = Math.round((1.20 + extraCostUsd + waitingFeeUsd) * 100) / 100;
-                            const totalSlsh = Math.round(totalUsd * EXCHANGE_RATE_USD_TO_SLSH);
+                            
+                            // 1. Separate Dropoff Trip Fare
+                            const isShare = currentRide.category === 'wadaage_share' || currentRide.isShared;
+                            const ratePerKm = isShare ? 0.40 : 0.80;
+                            const dropoffFareUsd = currentRide.isLiveTaximeter
+                              ? Math.round((1.20 + extraCostUsd) * 100) / 100
+                              : Number((Number(currentRide.baseFare || 1.20) + (Number(currentRide.distanceKm || 1) * ratePerKm) - Number(currentRide.discountAmount || 0)).toFixed(2));
+                            const dropoffFareSlsh = Math.round(dropoffFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
+
+                            // 2. Separate Waiting Time Fee (500 SLSH / minute)
+                            const waitingSecs = Number(currentRide.waitingSeconds || 0);
+                            const waitingMinutes = currentRide.waitingMinutes || (waitingSecs > 0 ? Math.ceil(waitingSecs / 60) : 0);
+                            const waitingFeeSlsh = currentRide.waitingFeeSlsh !== undefined ? currentRide.waitingFeeSlsh : waitingMinutes * 500;
+                            const waitingFeeUsd = currentRide.waitingFeeUsd !== undefined ? Number(currentRide.waitingFeeUsd) : Number((waitingFeeSlsh / EXCHANGE_RATE_USD_TO_SLSH).toFixed(2));
+
+                            // 3. Final Total Adding Both
+                            const totalUsd = Math.round((dropoffFareUsd + waitingFeeUsd) * 100) / 100;
+                            const totalSlsh = Math.round(dropoffFareSlsh + waitingFeeSlsh);
 
                             setCompletedTripSummary({
                               distanceKm: finalDist,
                               durationMins: Math.max(1, Math.ceil(liveMeterSeconds / 60)),
-                              baseFareUsd: 1.20,
-                              extraKm: extraDistance,
-                              extraFareUsd: extraCostUsd,
+                              dropoffFareUsd,
+                              dropoffFareSlsh,
+                              waitingMinutes,
+                              waitingFeeUsd,
+                              waitingFeeSlsh,
                               totalFareUsd: totalUsd,
                               totalFareSlsh: totalSlsh,
                               paymentMethod: currentRide.paymentMethod || 'cash',
@@ -3311,28 +3330,67 @@ export const MobileDriverApp: React.FC = () => {
               </div>
             </div>
 
-            {/* Itemized Calculation Breakdown */}
-            <div className="bg-slate-800/80 p-3.5 rounded-2xl border border-slate-700 space-y-2 text-xs">
+            {/* Itemized Calculation Breakdown - Separating Dropoff Price & Waiting Fee */}
+            <div className="bg-slate-800/90 p-4 rounded-2xl border border-slate-700 space-y-2.5 text-xs">
               <div className="flex items-center justify-between text-slate-300">
-                <span>Distance Travelled:</span>
+                <span>Masaafada Safarka (Distance):</span>
                 <span className="font-bold text-white font-mono">{completedTripSummary.distanceKm.toFixed(2)} KM</span>
               </div>
               <div className="flex items-center justify-between text-slate-300">
-                <span>Trip Duration:</span>
+                <span>Wakhtiga Safarka (Duration):</span>
                 <span className="font-bold text-white font-mono">{completedTripSummary.durationMins} mins</span>
               </div>
-              <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400">
-                <span>1st KM (Flag Drop):</span>
-                <span className="font-bold text-slate-200 font-mono">12,000 SLSH ($1.20)</span>
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Extra {completedTripSummary.extraKm.toFixed(2)} KM @ 7k/km:</span>
-                <span className="font-bold text-slate-200 font-mono">
-                  {Math.round(completedTripSummary.extraFareUsd * EXCHANGE_RATE_USD_TO_SLSH).toLocaleString()} SLSH
+
+              {/* 1. SEPARATE DROPOFF FARE */}
+              <div className="pt-2 border-t border-slate-700/80 flex items-center justify-between">
+                <span className="font-bold text-slate-200 flex items-center gap-1">
+                  <span>🚗</span>
+                  <span>Qiimaha Safarka (Dropoff Price):</span>
                 </span>
+                <div className="text-right">
+                  <span className="font-mono font-black text-white text-xs block">
+                    {completedTripSummary.dropoffFareSlsh.toLocaleString()} SLSH
+                  </span>
+                  <span className="text-[10px] text-slate-400 block font-semibold">
+                    (${completedTripSummary.dropoffFareUsd.toFixed(2)} USD)
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Payment Method:</span>
+
+              {/* 2. SEPARATE WAITING FEE */}
+              <div className="flex items-center justify-between">
+                <span className={`font-bold flex items-center gap-1 ${completedTripSummary.waitingMinutes > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+                  <span>⏱️</span>
+                  <span>Sugitaanka ({completedTripSummary.waitingMinutes} daq @ 500 SLSH):</span>
+                </span>
+                <div className="text-right">
+                  <span className={`font-mono font-black text-xs block ${completedTripSummary.waitingMinutes > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+                    +{completedTripSummary.waitingFeeSlsh.toLocaleString()} SLSH
+                  </span>
+                  <span className="text-[10px] text-slate-400 block font-semibold">
+                    (+${completedTripSummary.waitingFeeUsd.toFixed(2)} USD)
+                  </span>
+                </div>
+              </div>
+
+              {/* 3. FINAL TOTAL SUM */}
+              <div className="pt-2 border-t border-emerald-500/30 flex items-center justify-between bg-slate-950/60 p-2.5 rounded-xl border border-slate-700">
+                <span className="font-black text-emerald-400 text-xs flex items-center gap-1">
+                  <span>💰</span>
+                  <span>Wadarta Guud (Final Total):</span>
+                </span>
+                <div className="text-right">
+                  <span className="font-mono font-black text-emerald-400 text-sm block">
+                    {completedTripSummary.totalFareSlsh.toLocaleString()} SLSH
+                  </span>
+                  <span className="text-[10px] text-slate-400 block font-bold">
+                    (${completedTripSummary.totalFareUsd.toFixed(2)} USD)
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                <span>Habka Lacag-bixinta:</span>
                 <span className="font-bold text-emerald-400 uppercase">{completedTripSummary.paymentMethod}</span>
               </div>
             </div>

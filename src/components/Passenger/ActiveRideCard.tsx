@@ -491,28 +491,57 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
                 </div>
 
                 {/* Itemized Fare Table */}
-                {showFareBreakdown && (
-                  <div className="pt-2 border-t border-dashed border-slate-300 dark:border-slate-700 space-y-1 text-[11px]">
-                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                      <span>Qiimaha Aasaasiga ah (Base):</span>
-                      <span className="font-mono">${(isShare ? 0.40 : 0.80).toFixed(2)} USD</span>
-                    </div>
-                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                      <span>Masaafada ({currentRide.distanceKm} km):</span>
-                      <span className="font-mono">${(Number(currentRide.distanceKm || 1) * (isShare ? 0.40 : 0.80)).toFixed(2)} USD</span>
-                    </div>
-                    {Number(currentRide.waitingFeeUsd || 0) > 0 && (
-                      <div className="flex justify-between text-amber-600 dark:text-amber-400 font-semibold">
-                        <span>Sugitaanka ({currentRide.waitingMinutes || 1} daq @ 500 SLSH):</span>
-                        <span className="font-mono font-bold">+${Number(currentRide.waitingFeeUsd).toFixed(2)} USD (+{((currentRide.waitingFeeSlsh || 500)).toLocaleString()} SLSH)</span>
+                {showFareBreakdown && (() => {
+                  const ratePerKm = isShare ? 0.40 : 0.80;
+                  const dropoffFareUsd = currentRide.dropoffFareUsd !== undefined
+                    ? currentRide.dropoffFareUsd
+                    : Number((Number(currentRide.baseFare || 1.20) + (Number(currentRide.distanceKm || 1) * ratePerKm) - Number(currentRide.discountAmount || 0)).toFixed(2));
+                  const dropoffFareSlsh = currentRide.dropoffFareSlsh !== undefined
+                    ? currentRide.dropoffFareSlsh
+                    : Math.round(dropoffFareUsd * EXCHANGE_RATE_USD_TO_SLSH);
+
+                  const waitingSecs = Number(currentRide.waitingSeconds || 0);
+                  const waitingMinutes = currentRide.waitingMinutes || (waitingSecs > 0 ? Math.ceil(waitingSecs / 60) : 0);
+                  const waitingFeeSlsh = currentRide.waitingFeeSlsh !== undefined ? currentRide.waitingFeeSlsh : waitingMinutes * 500;
+                  const waitingFeeUsd = currentRide.waitingFeeUsd !== undefined ? Number(currentRide.waitingFeeUsd) : Number((waitingFeeSlsh / EXCHANGE_RATE_USD_TO_SLSH).toFixed(2));
+
+                  return (
+                    <div className="pt-2 border-t border-dashed border-slate-300 dark:border-slate-700 space-y-1.5 text-[11px]">
+                      {/* 1. Dropoff Trip Price */}
+                      <div className="flex justify-between text-slate-700 dark:text-slate-300 font-medium">
+                        <span className="flex items-center gap-1">
+                          <span>🚗</span>
+                          <span>Qiimaha Safarka (Dropoff Trip Fare):</span>
+                        </span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">
+                          {dropoffFareSlsh.toLocaleString()} SLSH (${dropoffFareUsd.toFixed(2)})
+                        </span>
                       </div>
-                    )}
-                    <div className="flex justify-between font-bold text-slate-900 dark:text-white pt-1 border-t border-slate-200 dark:border-slate-700">
-                      <span>Habka Lacag-bixinta:</span>
-                      <span className="uppercase text-emerald-600 dark:text-emerald-400">{currentRide.paymentMethod || 'cash'}</span>
+
+                      {/* 2. Waiting Time Fee */}
+                      <div className="flex justify-between font-medium">
+                        <span className={`flex items-center gap-1 ${waitingMinutes > 0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-500'}`}>
+                          <span>⏱️</span>
+                          <span>Sugitaanka ({waitingMinutes} daq @ 500 SLSH):</span>
+                        </span>
+                        <span className={`font-mono font-bold ${waitingMinutes > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500'}`}>
+                          +{waitingFeeSlsh.toLocaleString()} SLSH (+${waitingFeeUsd.toFixed(2)})
+                        </span>
+                      </div>
+
+                      {/* 3. Final Total Sum */}
+                      <div className="flex justify-between font-black text-emerald-600 dark:text-emerald-400 pt-1 border-t border-slate-200 dark:border-slate-700">
+                        <span>Wadarta Guud ee Lacagta:</span>
+                        <span className="font-mono text-xs">{totalSos.toLocaleString()} SLSH (${totalFare.toFixed(2)})</span>
+                      </div>
+
+                      <div className="flex justify-between text-slate-500 dark:text-slate-400 pt-0.5 text-[10px]">
+                        <span>Habka Lacag-bixinta:</span>
+                        <span className="uppercase font-bold text-emerald-600 dark:text-emerald-400">{currentRide.paymentMethod || 'cash'}</span>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Cancel Button (Only if not yet in_progress) */}
