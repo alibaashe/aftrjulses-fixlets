@@ -1,11 +1,40 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Download, Smartphone, Car, Shield, Globe, MessageSquare,
-  ArrowRight, CheckCircle2, Apple, MapPin, Phone, Users,
-  CreditCard, Sparkles, Navigation, Clock
+  Download,
+  Smartphone,
+  Car,
+  Shield,
+  Globe,
+  MessageSquare,
+  ArrowRight,
+  CheckCircle2,
+  MapPin,
+  Phone,
+  Users,
+  CreditCard,
+  Sparkles,
+  Navigation,
+  Clock,
+  Star,
+  Zap,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  Activity,
+  Layers,
+  ShieldCheck,
+  Building,
+  DollarSign,
+  Compass,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { SomalilandFlag } from '../Common/SomalilandFlag';
 import { WadaageLogo } from '../Common/WadaageLogo';
+import {
+  WebsiteCmsConfig,
+  DEFAULT_WEBSITE_CMS_CONFIG,
+} from '../../types/websiteCms';
+import { HARGEISA_PLACES } from '../../data/hargeisaPlaces';
 
 interface WadaageWelcomeWebsiteProps {
   onNavigate: (target: 'rider' | 'driver' | 'admin' | 'website') => void;
@@ -18,602 +47,736 @@ export const WadaageWelcomeWebsite: React.FC<WadaageWelcomeWebsiteProps> = ({
   language,
   setLanguage,
 }) => {
+  const [cmsConfig, setCmsConfig] = useState<WebsiteCmsConfig>(() => {
+    try {
+      const saved = localStorage.getItem('wadaage_website_cms_config');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return DEFAULT_WEBSITE_CMS_CONFIG;
+  });
+
+  // Live Fare Estimator State
+  const [selectedPickup, setSelectedPickup] = useState(HARGEISA_PLACES[0]?.name || 'Hargeisa Egal International Airport');
+  const [selectedDropoff, setSelectedDropoff] = useState(HARGEISA_PLACES[1]?.name || 'Dahabshiil Business Center');
+  const [estimateDistanceKm, setEstimateDistanceKm] = useState(4.2);
+
+  // Sync CMS config dynamically & listen for real-time admin edits
+  useEffect(() => {
+    const handleCmsUpdate = (e: any) => {
+      if (e.data && e.data.type === 'CMS_CONFIG_UPDATED' && e.data.payload) {
+        setCmsConfig(e.data.payload);
+      }
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const ch = new BroadcastChannel('wadaage_events_channel');
+        ch.onmessage = handleCmsUpdate;
+        return () => ch.close();
+      } catch {}
+    }
+  }, []);
+
+  const shareFareUsd = (estimateDistanceKm * 0.40).toFixed(2);
+  const shareFareSlsh = Math.round(Number(shareFareUsd) * 8500);
+  const taxiFareUsd = (estimateDistanceKm * 0.80).toFixed(2);
+  const taxiFareSlsh = Math.round(Number(taxiFareUsd) * 8500);
+
   return (
-    <div className="min-h-screen bg-white text-slate-900 font-sans flex flex-col selection:bg-blue-600 selection:text-white">
-      {/* 1. TOP NOTICE & LANGUAGE STRIP */}
-      <div className="bg-blue-900 text-white py-2 px-4 text-xs font-semibold border-b border-blue-800">
-        <div className="max-w-6xl mx-auto w-full flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <SomalilandFlag className="w-4 h-2.5 rounded-xs" />
-            <span className="font-bold">
-              {language === 'so'
-                ? 'Wadaage Somaliland — Gaadiid Casri ah & Qiimo Jaban'
-                : 'Wadaage Somaliland — Smart Mobility & Affordable Rides'}
-            </span>
-          </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col selection:bg-emerald-500 selection:text-slate-950">
+      {/* 1. TOP NOTICE & ANNOUNCEMENT STRIP (Dynamic from CMS) */}
+      {cmsConfig.announcement.enabled && (
+        <div
+          className={`bg-gradient-to-r ${cmsConfig.announcement.bgGradient || 'from-emerald-700 via-teal-800 to-slate-900'} text-white py-2 px-4 text-xs font-semibold border-b border-emerald-500/30`}
+        >
+          <div className="max-w-6xl mx-auto w-full flex items-center justify-between">
+            <div className="flex items-center space-x-2 truncate">
+              <SomalilandFlag className="w-4 h-2.5 rounded-2xs shrink-0" />
+              <span className="font-bold truncate">
+                {language === 'so'
+                  ? cmsConfig.announcement.messageSo
+                  : cmsConfig.announcement.messageEn}
+              </span>
+            </div>
 
-          <div className="flex items-center space-x-4">
-            <a
-              href="https://wa.me/252636807814"
-              target="_blank"
-              rel="noreferrer"
-              className="hidden sm:flex items-center space-x-1.5 text-blue-200 hover:text-white font-bold transition"
-            >
-              <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
-              <span>WhatsApp: +252 63 6807814</span>
-            </a>
+            <div className="flex items-center space-x-4 shrink-0">
+              <a
+                href={`https://wa.me/${cmsConfig.contact.whatsappNumber.replace(/[^0-9]/g, '')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hidden sm:flex items-center space-x-1.5 text-emerald-300 hover:text-white font-bold transition"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                <span>WhatsApp: {cmsConfig.contact.whatsappNumber}</span>
+              </a>
 
-            <button
-              onClick={() => setLanguage(language === 'en' ? 'so' : 'en')}
-              className="bg-blue-800 hover:bg-blue-700 px-2.5 py-1 rounded-lg text-[11px] font-bold text-white flex items-center space-x-1.5 transition border border-blue-700"
-            >
-              <Globe className="w-3 h-3 text-blue-300" />
-              <span>{language === 'en' ? 'SOMALI' : 'ENGLISH'}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setLanguage(language === 'en' ? 'so' : 'en')}
+                className="bg-slate-900/60 hover:bg-slate-900 px-2.5 py-1 rounded-lg text-[11px] font-bold text-white flex items-center space-x-1.5 transition border border-emerald-500/40 cursor-pointer"
+              >
+                <Globe className="w-3 h-3 text-emerald-300" />
+                <span>{language === 'en' ? 'SOMALI' : 'ENGLISH'}</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 2. MAIN NAVBAR */}
-      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 shadow-xs">
+      <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40 shadow-xl">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center space-x-3">
+          {/* Logo & Slogan */}
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onNavigate('website')}>
             <WadaageLogo variant="badge" size="sm" />
             <div>
               <div className="flex items-center space-x-1">
-                <span className="text-2xl font-black text-blue-900 tracking-tight">
+                <span className="text-2xl font-black text-white tracking-tight">
                   Wadaage
                 </span>
-                <span className="text-2xl font-black text-blue-600">.com</span>
+                <span className="text-2xl font-black text-emerald-400">.com</span>
               </div>
-              <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider">
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
                 Somaliland Smart Mobility
               </p>
             </div>
           </div>
 
           {/* Navigation Items */}
-          <nav className="hidden md:flex items-center space-x-8 text-sm font-bold text-slate-600">
-            <a href="#about" className="hover:text-blue-600 transition">
-              {language === 'so' ? 'Faahfaahin' : 'About'}
+          <nav className="hidden md:flex items-center space-x-7 text-xs font-bold text-slate-300">
+            <a href="#services" className="hover:text-emerald-400 transition">
+              {language === 'so' ? 'Adeegyada' : 'Services'}
             </a>
-            <a href="#features" className="hover:text-blue-600 transition">
-              {language === 'so' ? 'Astaamaha' : 'Features'}
+            <a href="#calculator" className="hover:text-emerald-400 transition">
+              {language === 'so' ? 'Qiyaas Qiimaha' : 'Fare Calculator'}
             </a>
-            <a href="#download" className="hover:text-blue-600 transition">
+            <a href="#drivers" className="hover:text-emerald-400 transition">
+              {language === 'so' ? 'Darawallada' : 'Drive With Us'}
+            </a>
+            <a href="#safety" className="hover:text-emerald-400 transition">
+              {language === 'so' ? 'Amniga' : 'Safety'}
+            </a>
+            <a href="#download" className="hover:text-emerald-400 transition">
               {language === 'so' ? 'Download App' : 'Download'}
-            </a>
-            <a href="#contact" className="hover:text-blue-600 transition">
-              {language === 'so' ? 'La Xiriir' : 'Contact'}
             </a>
           </nav>
 
-          {/* Direct Ride Booking CTA Button */}
-          <div className="flex items-center space-x-3">
+          {/* Direct Ride Booking & App Launchers */}
+          <div className="flex items-center space-x-2 sm:space-x-3">
             <button
-              onClick={() => onNavigate('rider')}
-              className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black shadow-md hover:shadow-blue-500/25 transition flex items-center space-x-2"
+              type="button"
+              onClick={() => onNavigate('driver')}
+              className="hidden sm:flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-black border border-slate-700 transition cursor-pointer"
             >
-              <Car className="w-4 h-4 text-blue-200" />
+              <Car className="w-3.5 h-3.5 text-amber-400" />
+              <span>{language === 'so' ? 'Darawal' : 'Driver App'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('rider')}
+              className="bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 active:scale-95 text-slate-950 px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black shadow-lg shadow-emerald-500/25 transition flex items-center space-x-2 cursor-pointer"
+            >
+              <Car className="w-4 h-4 text-slate-950" />
               <span>{language === 'so' ? 'Dalbo Wadaage' : 'Book a Ride'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('admin')}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition cursor-pointer"
+              title="Admin Panel"
+            >
+              <Shield className="w-4 h-4 text-blue-400" />
             </button>
           </div>
         </div>
       </header>
 
-      {/* 3. HERO SECTION */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-blue-50/60 via-white to-white py-12 sm:py-20 border-b border-slate-100">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      {/* 3. HERO SECTION (Dynamic from CMS) */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 py-12 sm:py-20 border-b border-slate-800/80">
+        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#10b981_1px,transparent_1px)] [background-size:20px_20px]" />
 
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 relative z-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
             {/* Left Content */}
             <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-              <div className="inline-flex items-center space-x-2 bg-blue-100 text-blue-800 px-3.5 py-1.5 rounded-full text-xs font-bold shadow-xs">
-                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <div className="inline-flex items-center space-x-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3.5 py-1.5 rounded-full text-xs font-bold shadow-xs">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
                 <span>
                   {language === 'so'
-                    ? 'Adeegga Gaadiidka ee Koowaad ee Somaliland'
-                    : '#1 Smart Mobility Platform in Somaliland'}
+                    ? cmsConfig.hero.badgeTextSo
+                    : cmsConfig.hero.badgeTextEn}
                 </span>
               </div>
 
-              <h1 className="text-3xl sm:text-5xl font-black text-slate-900 tracking-tight leading-tight">
+              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-tight">
                 {language === 'so' ? (
                   <>
-                    Safarkaaga Hargeysa, Si Fudud & <span className="text-blue-600">Qiimo Jaban</span>
+                    Safarkaaga Hargeysa, Si Fudud &{' '}
+                    <span className="text-emerald-400">Qiimo Jaban</span>
                   </>
                 ) : (
                   <>
-                    Your Commute in Hargeisa, Fast & <span className="text-blue-600">Affordable</span>
+                    Your Commute in Hargeisa, Fast &{' '}
+                    <span className="text-emerald-400">Affordable</span>
                   </>
                 )}
               </h1>
 
-              <p className="text-base sm:text-lg text-slate-600 font-normal leading-relaxed max-w-xl mx-auto lg:mx-0">
+              <p className="text-sm sm:text-base text-slate-300 font-normal leading-relaxed max-w-xl mx-auto lg:mx-0">
                 {language === 'so'
-                  ? 'Ku safar Wadaage Share si aad u wadaagto kharashka, ama kireyso Taxi gaar ah. Degdeg, ammaan, iyo lacag-bixinta tooska ah ee ZAAD iyo eDahab.'
-                  : 'Travel with Wadaage Share to split costs with fellow commuters, or hire a private Taxi across Hargeisa with direct ZAAD & eDahab mobile payments.'}
+                  ? cmsConfig.hero.subtitleSo
+                  : cmsConfig.hero.subtitleEn}
               </p>
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
-                <a
-                  href="#download"
-                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-7 py-3.5 rounded-2xl font-black text-sm flex items-center justify-center space-x-2 shadow-lg shadow-blue-500/20 transition active:scale-98"
+                <button
+                  type="button"
+                  onClick={() => onNavigate('rider')}
+                  className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-8 py-4 rounded-2xl font-black text-sm flex items-center justify-center space-x-2.5 shadow-xl shadow-emerald-500/20 transition active:scale-95 cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>{language === 'so' ? 'Soo Degso App-ka' : 'Download Mobile App'}</span>
-                </a>
+                  <Car className="w-5 h-5 text-slate-950" />
+                  <span>
+                    {language === 'so'
+                      ? cmsConfig.hero.ctaButtonTextSo
+                      : cmsConfig.hero.ctaButtonTextEn}
+                  </span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
 
                 <button
-                  onClick={() => onNavigate('rider')}
-                  className="w-full sm:w-auto bg-white hover:bg-slate-50 text-blue-900 border-2 border-blue-200 hover:border-blue-400 px-6 py-3.5 rounded-2xl font-black text-sm flex items-center justify-center space-x-2 transition active:scale-98 shadow-xs"
+                  type="button"
+                  onClick={() => onNavigate('driver')}
+                  className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white border-2 border-slate-700 hover:border-emerald-500/50 px-7 py-4 rounded-2xl font-black text-sm flex items-center justify-center space-x-2 transition active:scale-95 shadow-md cursor-pointer"
                 >
-                  <span>{language === 'so' ? 'Kaga Safar Web-ka' : 'Book on Web'}</span>
-                  <ArrowRight className="w-4 h-4 text-blue-600" />
+                  <span>
+                    {language === 'so'
+                      ? cmsConfig.hero.secondaryButtonTextSo
+                      : cmsConfig.hero.secondaryButtonTextEn}
+                  </span>
                 </button>
               </div>
 
-              {/* Trust Metrics */}
-              <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-200/80 max-w-lg mx-auto lg:mx-0 text-left">
-                <div>
-                  <div className="text-2xl font-black text-blue-900">1.0 KM</div>
-                  <div className="text-xs text-slate-500 font-semibold">{language === 'so' ? 'Imaanshaha Darawalka' : 'Average Dispatch'}</div>
+              {/* Trust Metrics Grid */}
+              <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-800 max-w-lg mx-auto lg:mx-0 text-left">
+                <div className="bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
+                  <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">1.0 KM</div>
+                  <div className="text-[11px] text-slate-400 font-bold">
+                    {language === 'so' ? 'Imaanshaha Darawalka' : 'Average Arrival'}
+                  </div>
                 </div>
-                <div>
-                  <div className="text-2xl font-black text-blue-900">100%</div>
-                  <div className="text-xs text-slate-500 font-semibold">{language === 'so' ? 'ZAAD & eDahab' : 'Mobile Payments'}</div>
+                <div className="bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
+                  <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">100%</div>
+                  <div className="text-[11px] text-slate-400 font-bold">
+                    {language === 'so' ? 'ZAAD & eDahab' : 'Instant Pay'}
+                  </div>
                 </div>
-                <div>
-                  <div className="text-2xl font-black text-blue-900">24/7</div>
-                  <div className="text-xs text-slate-500 font-semibold">{language === 'so' ? 'Adeeg Joogto ah' : 'Active Fleet'}</div>
+                <div className="bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
+                  <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">1,000 SOS</div>
+                  <div className="text-[11px] text-slate-400 font-bold">
+                    {language === 'so' ? 'Komishan Go’an' : 'Fixed Commission'}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Visual: Mobile Showcase */}
-            <div className="lg:col-span-5 flex justify-center">
-              <div className="relative w-full max-w-[320px] bg-slate-950 rounded-[44px] p-3.5 shadow-2xl border-4 border-slate-800 ring-1 ring-blue-500/20">
-                {/* Speaker Ear Notch */}
-                <div className="absolute top-6 left-1/2 -translate-x-1/2 w-28 h-4 bg-slate-900 rounded-full z-20 flex items-center justify-center">
-                  <div className="w-3 h-3 rounded-full bg-slate-800 mr-2" />
-                  <div className="w-8 h-1.5 bg-slate-700 rounded-full" />
-                </div>
-
-                {/* Smartphone Screen Inside */}
-                <div className="w-full bg-slate-900 rounded-[34px] overflow-hidden pt-8 pb-4 text-white text-xs">
-                  {/* Top Bar inside mockup */}
-                  <div className="px-4 py-2 border-b border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5">
-                      <div className="w-5 h-5 rounded-md bg-blue-600 flex items-center justify-center text-[10px] font-black">W</div>
-                      <span className="font-bold text-white text-xs">Wadaage Rider</span>
-                    </div>
-                    <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800/60">
-                      Live GPS
-                    </span>
+            {/* Right Visual: Mobile Showcase Mockup */}
+            {cmsConfig.hero.showLiveMockup && (
+              <div className="lg:col-span-5 flex justify-center">
+                <div className="relative w-full max-w-[310px] bg-slate-900 rounded-[44px] p-3 shadow-2xl border-4 border-slate-800 ring-2 ring-emerald-500/20">
+                  {/* Speaker Ear Notch */}
+                  <div className="absolute top-5 left-1/2 -translate-x-1/2 w-24 h-4 bg-slate-950 rounded-full z-20 flex items-center justify-center">
+                    <div className="w-2.5 h-2.5 rounded-full bg-slate-800 mr-2" />
+                    <div className="w-6 h-1 bg-slate-700 rounded-full" />
                   </div>
 
-                  {/* Mockup Map Area */}
-                  <div className="h-44 bg-slate-800 relative overflow-hidden flex items-center justify-center">
-                    <div className="absolute inset-0 opacity-25 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:16px_16px]" />
-                    {/* Pulsing pickup point */}
-                    <div className="relative z-10 flex flex-col items-center">
-                      <div className="w-8 h-8 rounded-full bg-blue-600/30 flex items-center justify-center animate-ping absolute" />
-                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg font-bold">
-                        <MapPin className="w-4 h-4" />
+                  {/* Smartphone Screen Inside */}
+                  <div className="w-full bg-slate-950 rounded-[34px] overflow-hidden pt-7 pb-3 text-white text-xs space-y-2.5">
+                    {/* Top Status */}
+                    <div className="px-3.5 py-1.5 border-b border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                        <span className="font-extrabold text-[11px] text-white">Wadaage Live Dispatch</span>
                       </div>
-                      <span className="text-[10px] font-bold bg-slate-900 px-2 py-0.5 rounded-md mt-1 border border-slate-700">
-                        Jigjiga Yar
+                      <span className="text-[9px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800">
+                        GPS Active
                       </span>
                     </div>
-                  </div>
 
-                  {/* Mockup Card Bottom */}
-                  <div className="p-4 space-y-3 bg-slate-950">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-400 font-medium">Halka aad tegeyso</span>
-                      <span className="text-blue-400 font-bold">Total Kaalinta</span>
+                    {/* Simulated Map */}
+                    <div className="h-36 bg-slate-900 relative rounded-2xl mx-2.5 overflow-hidden flex items-center justify-center border border-slate-800">
+                      <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#10b981_1px,transparent_1px)] [background-size:12px_12px]" />
+                      <div className="relative flex flex-col items-center">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center animate-pulse">
+                          <Car className="w-5 h-5" />
+                        </div>
+                        <span className="text-[10px] font-black text-emerald-400 mt-1">
+                          Toyota Vitz • White (SL-4921)
+                        </span>
+                      </div>
                     </div>
-                    <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <Car className="w-4 h-4 text-blue-400" />
+
+                    {/* Bottom Card Mockup */}
+                    <div className="bg-slate-900 p-3 rounded-2xl mx-2.5 border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between">
                         <div>
-                          <div className="font-bold text-white text-xs">Wadaage Share</div>
-                          <div className="text-[10px] text-slate-400">3 kuraas banaan</div>
+                          <div className="font-extrabold text-xs">Jigjiga Yar ➔ Egal Airport</div>
+                          <div className="text-[10px] text-slate-400">Wadaage Share • Save 30%</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-black text-emerald-400 font-mono">15,000 SLSH</div>
+                          <div className="text-[9px] text-slate-400">$1.76 USD</div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="font-black text-emerald-400 text-xs">$0.90 USD</div>
-                        <div className="text-[9px] text-slate-400">7,650 SLSH</div>
-                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('rider')}
+                        className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider transition"
+                      >
+                        Guji si aad u dalbato &rarr;
+                      </button>
                     </div>
-
-                    <button
-                      onClick={() => onNavigate('rider')}
-                      className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-md"
-                    >
-                      Dalbo Hadda (Book Ride)
-                    </button>
                   </div>
                 </div>
               </div>
-            </div>
-
+            )}
           </div>
         </div>
       </section>
 
-      {/* 4. BLUE STATS STRIP */}
-      <section className="bg-blue-900 text-white py-8">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-            <div className="space-y-1">
-              <div className="text-3xl sm:text-4xl font-black text-blue-200">10,000+</div>
-              <div className="text-xs font-bold text-blue-100 uppercase tracking-wider">
-                {language === 'so' ? 'Safarro Guulaystay' : 'Completed Trips'}
-              </div>
+      {/* 4. INTERACTIVE LIVE FARE & DISTANCE CALCULATOR */}
+      <section id="calculator" className="py-14 bg-slate-900 border-b border-slate-800">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <div className="text-center space-y-2 mb-8">
+            <div className="inline-flex items-center space-x-1.5 bg-blue-500/10 border border-blue-500/30 text-blue-400 px-3 py-1 rounded-full text-xs font-bold">
+              <DollarSign className="w-3.5 h-3.5" />
+              <span>{language === 'so' ? 'Xisaabiye Toos ah' : 'Live Fare Estimator'}</span>
             </div>
-            <div className="space-y-1">
-              <div className="text-3xl sm:text-4xl font-black text-blue-200">1.0 KM</div>
-              <div className="text-xs font-bold text-blue-100 uppercase tracking-wider">
-                {language === 'so' ? 'Dispatch Degdeg ah' : 'Dispatch Radius'}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <div className="text-3xl sm:text-4xl font-black text-blue-200">100%</div>
-              <div className="text-xs font-bold text-blue-100 uppercase tracking-wider">
-                {language === 'so' ? 'Xaqiijinta Darawalka' : 'Verified Drivers'}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <div className="text-3xl sm:text-4xl font-black text-blue-200">24 / 7</div>
-              <div className="text-xs font-bold text-blue-100 uppercase tracking-wider">
-                {language === 'so' ? 'Taageero Toos ah' : 'Live Support'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. CORE FEATURES SECTION (BLUE & WHITE CARDS) */}
-      <section id="features" className="py-16 sm:py-20 bg-slate-50 border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 space-y-12">
-
-          <div className="text-center max-w-2xl mx-auto space-y-3">
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              {language === 'so' ? 'Maxaad Wadaage u Dooranaysaa?' : 'Why Choose Wadaage?'}
-            </h2>
-            <p className="text-sm sm:text-base text-slate-600">
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
               {language === 'so'
-                ? 'Waxaan kuu keenay tiknoolajiyad casri ah oo fududaynaysa safarkaaga maalinlaha ah ee caasimadda Hargeysa.'
-                : 'Modern technology crafted for Somaliland, making your daily transportation safe, fast, and economical.'}
+                ? 'Qiyaas Qiimaha Safarkaaga Hargeysa'
+                : 'Estimate Your Trip Fare Across Hargeisa'}
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+              {language === 'so'
+                ? 'Dooro meesha aad ka baxayso iyo meesha aad u socoto si aad u ogaato qiimaha rasmiga ah.'
+                : 'Select your pickup and dropoff points to calculate transparent fares in USD & Somaliland Shillings.'}
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-
-            {/* Card 1 */}
-            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:border-blue-400 hover:shadow-md transition space-y-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                <CreditCard className="w-6 h-6" />
-              </div>
-              <h3 className="font-extrabold text-base text-slate-900">
-                {language === 'so' ? 'Qiimo Jaban & Hufan' : 'Affordable & Transparent'}
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                {language === 'so'
-                  ? 'Kharashka safarka oo 40% ka jaban tagsiyada kale. Qiimo go\'an oo cad kahor intaadan kicin gaadhiga.'
-                  : 'Fares are up to 40% lower with upfront transparent pricing before you confirm your ride.'}
-              </p>
-            </div>
-
-            {/* Card 2 */}
-            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:border-blue-400 hover:shadow-md transition space-y-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                <Users className="w-6 h-6" />
-              </div>
-              <h3 className="font-extrabold text-base text-slate-900">
-                {language === 'so' ? 'Wada Safar (Carpool)' : 'Wadaage Share Carpooling'}
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                {language === 'so'
-                  ? 'La wadaag kuraasta dadka isla jihada u socda si aad u yarayso kharashka iyo ciriiriga wadooyinka.'
-                  : 'Split the cost by sharing empty seats with passengers heading the same route across Hargeisa.'}
-              </p>
-            </div>
-
-            {/* Card 3 */}
-            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:border-blue-400 hover:shadow-md transition space-y-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                <Shield className="w-6 h-6" />
-              </div>
-              <h3 className="font-extrabold text-base text-slate-900">
-                {language === 'so' ? 'Ammaan & Kalsooni' : 'Safe & Verified Drivers'}
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                {language === 'so'
-                  ? 'Dhammaan darawallada waxay leeyihiin Dammaanad-qaade rasmi ah, Baasaboor/ID Somaliland, iyo Gaadhi la hubiyey.'
-                  : 'All drivers undergo strict vetting with Somaliland National ID, police record, and verified local guarantor.'}
-              </p>
-            </div>
-
-            {/* Card 4 */}
-            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:border-blue-400 hover:shadow-md transition space-y-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                <Navigation className="w-6 h-6" />
-              </div>
-              <h3 className="font-extrabold text-base text-slate-900">
-                {language === 'so' ? 'Raad-raaca Tooska ah' : 'Live GPS & Route Tracking'}
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                {language === 'so'
-                  ? 'Kala soco gaadhigaaga khariidadda tooska ah. La wadaag qoyskaaga safarkaaga si aad ugu nabad gasho.'
-                  : 'Real-time live map tracking allows you to see your vehicle approach and share trip details with family.'}
-              </p>
-            </div>
-
-          </div>
-        </div>
-      </section>
-
-      {/* 6. DOWNLOAD APPS SECTION (RIDER & DRIVER) */}
-      <section id="download" className="py-16 sm:py-20 bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 space-y-12">
-
-          <div className="text-center max-w-2xl mx-auto space-y-3">
-            <div className="inline-flex items-center space-x-2 bg-blue-50 text-blue-700 px-3.5 py-1.5 rounded-full text-xs font-bold border border-blue-200">
-              <Download className="w-3.5 h-3.5" />
-              <span>{language === 'so' ? 'Kala Soo Deg App-ka Rasmiga ah' : 'Official Application Downloads'}</span>
-            </div>
-
-            <h2 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
-              {language === 'so' ? (
-                <>Dooro App-kaaga oo <span className="text-blue-600">Hadda Soo Degso</span></>
-              ) : (
-                <>Select Your App & <span className="text-blue-600">Download Now</span></>
-              )}
-            </h2>
-
-            <p className="text-sm sm:text-base text-slate-600">
-              {language === 'so'
-                ? 'App-ka Rakaabka (Wadaage Rider) ama App-ka Darawalka (Wadaage Driver) oo diyaar u ah Android iyo iOS.'
-                : 'Standalone applications available on Google Play, Apple App Store, and direct APK download.'}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-
-            {/* CARD 1: RIDER APP */}
-            <div className="bg-white rounded-3xl p-6 sm:p-8 border-2 border-blue-300 shadow-lg flex flex-col justify-between hover:border-blue-600 transition">
-              <div className="space-y-4">
-                <div className="flex items-center space-x-4">
-                  <div className="w-14 h-14 rounded-2xl p-1 bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center shrink-0 shadow-md">
-                    <img
-                      src="/riderlogo.png"
-                      alt="Wadaage Rider"
-                      className="w-full h-full object-cover rounded-xl"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = '/riderlogo.jpg';
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
-                      {language === 'so' ? 'Rakaabka' : 'Rider'}
-                    </span>
-                    <h3 className="text-xl font-black text-slate-900 mt-1">Wadaage Rider</h3>
-                    <p className="text-xs text-slate-500 font-medium">Dalbo Taxi & Wadaage Share</p>
-                  </div>
-                </div>
-
-                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                  {language === 'so'
-                    ? 'App-ka rasmiga ah ee aad ku dalbanayso gaadiidka Hargeysa. Bixi lacagta toos ZAAD iyo eDahab.'
-                    : 'The official passenger application to request private taxis and shared rides in Hargeisa with ZAAD & eDahab.'}
-                </p>
-
-                <div className="space-y-1.5 text-xs text-slate-700 font-semibold pt-1">
-                  <div className="flex items-center space-x-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>{language === 'so' ? 'Gaadhi Wadaag & Taxi Hargeysa' : 'City Rides & Carpooling'}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>{language === 'so' ? 'Telesom ZAAD & Somtel eDahab' : 'Instant ZAAD & eDahab Payments'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2.5 pt-6 border-t border-slate-100 mt-6">
-                <a
-                  href="https://play.google.com/store/apps/details?id=com.wadaage.rider"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-3 transition shadow"
+          <div className="bg-slate-950 p-6 rounded-3xl border border-slate-800 shadow-2xl grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+            {/* Left Selectors */}
+            <div className="md:col-span-7 space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="text-slate-300 font-bold block flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{language === 'so' ? 'Meesha aad joogto (Pickup Point):' : 'Pickup Location:'}</span>
+                </label>
+                <select
+                  value={selectedPickup}
+                  onChange={(e) => setSelectedPickup(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-bold focus:outline-none focus:border-emerald-500"
                 >
-                  <svg className="w-4 h-4 fill-current text-sky-400" viewBox="0 0 24 24">
-                    <path d="M3.609 1.814L13.792 12 3.61 22.186a2.41 2.41 0 0 1-.61-.715 2.455 2.455 0 0 1-.225-1.077V3.606c0-.395.078-.767.225-1.077.147-.31.36-.558.61-.715zm11.233 11.236l2.373 2.374-12.01 6.942 9.637-9.316zm0-2.1L5.205 1.634l12.01 6.942-2.373 2.374zm1.485 1.05l3.896 2.253a1.44 1.44 0 0 1 0 2.494l-3.896 2.253-2.122-2.123 2.122-2.877z" />
-                  </svg>
-                  <span>Google Play (Rider)</span>
-                </a>
+                  {HARGEISA_PLACES.slice(0, 35).map((loc) => (
+                    <option key={loc.id} value={loc.name}>
+                      {loc.name} {loc.district ? `(${loc.district})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                <a
-                  href="https://apps.apple.com/app/wadaage-rider/id6470000001"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-3 transition shadow"
+              <div className="space-y-1.5">
+                <label className="text-slate-300 font-bold block flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{language === 'so' ? 'Halka aad u socoto (Dropoff Destination):' : 'Dropoff Destination:'}</span>
+                </label>
+                <select
+                  value={selectedDropoff}
+                  onChange={(e) => setSelectedDropoff(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-bold focus:outline-none focus:border-emerald-500"
                 >
-                  <Apple className="w-4 h-4 text-white" />
-                  <span>Apple App Store (Rider)</span>
-                </a>
+                  {HARGEISA_PLACES.slice(0, 35).map((loc) => (
+                    <option key={loc.id} value={loc.name}>
+                      {loc.name} {loc.district ? `(${loc.district})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <a
-                    href="/wadaage-rider.apk"
-                    download
-                    className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg flex items-center justify-center space-x-1 transition text-center"
-                  >
-                    <Download className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Direct APK</span>
-                  </a>
-                  <button
-                    onClick={() => onNavigate('rider')}
-                    className="py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg flex items-center justify-center space-x-1 transition text-center"
-                  >
-                    <span>Furo Web</span>
-                    <ArrowRight className="w-3 h-3 text-blue-600" />
-                  </button>
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between text-slate-300 font-bold">
+                  <span>Masaafada (Distance Slider):</span>
+                  <span className="font-mono text-emerald-400 font-black">{estimateDistanceKm} KM</span>
                 </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="20"
+                  step="0.5"
+                  value={estimateDistanceKm}
+                  onChange={(e) => setEstimateDistanceKm(parseFloat(e.target.value) || 1)}
+                  className="w-full accent-emerald-500 cursor-pointer"
+                />
               </div>
             </div>
 
-            {/* CARD 2: DRIVER APP */}
-            <div className="bg-white rounded-3xl p-6 sm:p-8 border-2 border-blue-300 shadow-lg flex flex-col justify-between hover:border-blue-600 transition">
-              <div className="space-y-4">
-                <div className="flex items-center space-x-4">
-                  <div className="w-14 h-14 rounded-2xl p-1 bg-gradient-to-tr from-blue-700 to-indigo-500 flex items-center justify-center shrink-0 shadow-md">
-                    <img
-                      src="/darwelllogo.png"
-                      alt="Wadaage Driver"
-                      className="w-full h-full object-cover rounded-xl"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = '/darwelllogo.jpg';
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
-                      {language === 'so' ? 'Darawallada' : 'Driver Partner'}
-                    </span>
-                    <h3 className="text-xl font-black text-slate-900 mt-1">Wadaage Driver</h3>
-                    <p className="text-xs text-slate-500 font-medium">Kaxee & Dakhli Sameyso</p>
-                  </div>
+            {/* Right Rate Cards */}
+            <div className="md:col-span-5 space-y-3">
+              {/* Wadaage Share */}
+              <div className="bg-slate-900 p-4 rounded-2xl border-2 border-emerald-500/50 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-white flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-emerald-400" />
+                    <span>Wadaage Share (30% Off)</span>
+                  </span>
+                  <span className="bg-emerald-500 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full uppercase">
+                    Saved 30%
+                  </span>
                 </div>
-
-                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                  {language === 'so'
-                    ? 'App-ka darawallada ku biiraya kooxda Wadaage si ay u helaan dalabyo maalinle ah iyo lacag toos ah.'
-                    : 'The partner app for licensed drivers to receive trip dispatches, navigate routes, and cash out earnings.'}
-                </p>
-
-                <div className="space-y-1.5 text-xs text-slate-700 font-semibold pt-1">
-                  <div className="flex items-center space-x-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>{language === 'so' ? 'Dakhli maalinle ah oo degdeg ah' : 'Daily Payouts via ZAAD & eDahab'}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>{language === 'so' ? 'Navigation toos ah oo GPS ah' : 'Live GPS Navigation & Safety'}</span>
-                  </div>
+                <div className="flex items-baseline space-x-2">
+                  <span className="text-2xl font-black text-emerald-400 font-mono">
+                    {shareFareSlsh.toLocaleString()} SLSH
+                  </span>
+                  <span className="text-xs text-slate-400 font-bold">(${shareFareUsd} USD)</span>
                 </div>
               </div>
 
-              <div className="space-y-2.5 pt-6 border-t border-slate-100 mt-6">
-                <a
-                  href="https://play.google.com/store/apps/details?id=com.wadaage.driver"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-3 transition shadow"
-                >
-                  <svg className="w-4 h-4 fill-current text-sky-400" viewBox="0 0 24 24">
-                    <path d="M3.609 1.814L13.792 12 3.61 22.186a2.41 2.41 0 0 1-.61-.715 2.455 2.455 0 0 1-.225-1.077V3.606c0-.395.078-.767.225-1.077.147-.31.36-.558.61-.715zm11.233 11.236l2.373 2.374-12.01 6.942 9.637-9.316zm0-2.1L5.205 1.634l12.01 6.942-2.373 2.374zm1.485 1.05l3.896 2.253a1.44 1.44 0 0 1 0 2.494l-3.896 2.253-2.122-2.123 2.122-2.877z" />
-                  </svg>
-                  <span>Google Play (Driver)</span>
-                </a>
-
-                <a
-                  href="https://apps.apple.com/app/wadaage-driver/id6470000002"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-3 transition shadow"
-                >
-                  <Apple className="w-4 h-4 text-white" />
-                  <span>Apple App Store (Driver)</span>
-                </a>
-
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <a
-                    href="/wadaage-driver.apk"
-                    download
-                    className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg flex items-center justify-center space-x-1 transition text-center"
-                  >
-                    <Download className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Direct APK</span>
-                  </a>
-                  <button
-                    onClick={() => onNavigate('driver')}
-                    className="py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg flex items-center justify-center space-x-1 transition text-center"
-                  >
-                    <span>Furo Web</span>
-                    <ArrowRight className="w-3 h-3 text-blue-600" />
-                  </button>
+              {/* Normal Taxi */}
+              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-white flex items-center gap-1.5">
+                    <Car className="w-4 h-4 text-blue-400" />
+                    <span>Taxi Gaar Ah (Private)</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">Toos ah</span>
+                </div>
+                <div className="flex items-baseline space-x-2">
+                  <span className="text-2xl font-black text-blue-400 font-mono">
+                    {taxiFareSlsh.toLocaleString()} SLSH
+                  </span>
+                  <span className="text-xs text-slate-400 font-bold">(${taxiFareUsd} USD)</span>
                 </div>
               </div>
-            </div>
 
-          </div>
-        </div>
-      </section>
-
-      {/* 7. CONTACT & SUPPORT SECTION */}
-      <section id="contact" className="py-12 sm:py-16 bg-blue-900 text-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center md:text-left">
-            <div className="space-y-2">
-              <div className="w-10 h-10 rounded-xl bg-blue-800 flex items-center justify-center mx-auto md:mx-0 text-blue-200">
-                <Phone className="w-5 h-5" />
-              </div>
-              <h4 className="font-extrabold text-base">{language === 'so' ? 'Kala Xiriir Khadka' : 'Phone Contact'}</h4>
-              <p className="text-xs text-blue-200">+252 63 6807814</p>
-              <p className="text-xs text-blue-200">+252 65 6807814</p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="w-10 h-10 rounded-xl bg-blue-800 flex items-center justify-center mx-auto md:mx-0 text-blue-200">
-                <MessageSquare className="w-5 h-5 text-emerald-400" />
-              </div>
-              <h4 className="font-extrabold text-base">WhatsApp Support</h4>
-              <p className="text-xs text-blue-200">+252 63 6807814 (24/7)</p>
-              <a
-                href="https://wa.me/252636807814"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-block text-xs font-bold text-emerald-400 hover:underline"
+              <button
+                type="button"
+                onClick={() => onNavigate('rider')}
+                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider transition active:scale-95 shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                Fariin Toos ah U Dir →
-              </a>
-            </div>
-
-            <div className="space-y-2">
-              <div className="w-10 h-10 rounded-xl bg-blue-800 flex items-center justify-center mx-auto md:mx-0 text-blue-200">
-                <MapPin className="w-5 h-5" />
-              </div>
-              <h4 className="font-extrabold text-base">{language === 'so' ? 'Xafiiska Dhexe' : 'Headquarters'}</h4>
-              <p className="text-xs text-blue-200">Jigjiga Yar Commercial District</p>
-              <p className="text-xs text-blue-200">Hargeisa, Somaliland</p>
+                <span>Dalbo Hadda (Book This Route)</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 8. CLEAN OFFICIAL FOOTER (NO ADMIN/DRIVER LINKS) */}
-      <footer className="bg-slate-950 text-slate-400 py-8 px-4 sm:px-6 text-xs border-t border-slate-900">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
-          <div className="flex items-center space-x-2.5">
-            <WadaageLogo variant="badge" size="xs" />
-            <span className="font-bold text-white">Wadaage Mobility Somaliland</span>
-            <span>•</span>
-            <span>© 2026 All Rights Reserved</span>
+      {/* 5. SERVICES & PRICING SHOWCASE */}
+      <section id="services" className="py-16 bg-slate-950 border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center space-y-2 mb-12">
+            <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+              {language === 'so' ? 'Adeegyada Wadaage ee Somaliland' : 'Wadaage Mobility Services'}
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+              {language === 'so'
+                ? 'Xulashooyin kala duwan oo ku habboon safarkaaga maalinlaha ah ama safarrada gobollada.'
+                : 'Flexible transport options designed for your daily commute and regional travel.'}
+            </p>
           </div>
 
-          <div className="flex items-center space-x-6 text-slate-400 font-medium">
-            <span className="text-slate-500">Hargeisa, Somaliland</span>
-            <span>•</span>
-            <a href="mailto:info@wadaage.com" className="hover:text-white transition">
-              info@wadaage.com
-            </a>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {cmsConfig.services.filter(s => s.enabled).map((service) => (
+              <div
+                key={service.id}
+                className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-3xl p-6 space-y-4 shadow-xl transition-all duration-200 flex flex-col justify-between"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-base font-black text-white">
+                      {language === 'so' ? service.titleSo : service.titleEn}
+                    </span>
+                    {service.badgeSo && (
+                      <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase border border-emerald-500/30">
+                        {language === 'so' ? service.badgeSo : service.badgeEn}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-xl font-black text-emerald-400 font-mono">
+                    {language === 'so' ? service.priceTagSo : service.priceTagEn}
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {language === 'so' ? service.descriptionSo : service.descriptionEn}
+                  </p>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-800 text-xs">
+                    {service.features.map((f, i) => (
+                      <div key={i} className="flex items-center space-x-2 text-slate-300">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>{f}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('rider')}
+                    className="w-full py-3 rounded-2xl bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-white font-black text-xs uppercase tracking-wider transition active:scale-95 border border-slate-700 cursor-pointer"
+                  >
+                    {language === 'so' ? 'Dooro Adeeggan' : 'Select Service'}
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
+        </div>
+      </section>
+
+      {/* 6. FEATURES & SAFETY HIGHLIGHTS */}
+      <section id="safety" className="py-16 bg-slate-900 border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center space-y-2 mb-12">
+            <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+              {language === 'so' ? 'Maxaad U Dooranaysaa Wadaage?' : 'Why Ride With Wadaage?'}
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+              {language === 'so'
+                ? 'Tiknoolajiyad casri ah oo loo habeeyay gaadiidka Hargeysa iyo Somaliland.'
+                : 'Cutting-edge mobility technology tailored for Somaliland roads and communities.'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {cmsConfig.features.filter(f => f.enabled).map((feature) => (
+              <div
+                key={feature.id}
+                className="bg-slate-950 p-5 rounded-3xl border border-slate-800 space-y-3 hover:border-slate-700 transition"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-black border border-emerald-500/20">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  {feature.highlightTag && (
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800">
+                      {feature.highlightTag}
+                    </span>
+                  )}
+                </div>
+
+                <h3 className="font-extrabold text-sm text-white">
+                  {language === 'so' ? feature.titleSo : feature.titleEn}
+                </h3>
+
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  {language === 'so' ? feature.descriptionSo : feature.descriptionEn}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 7. DRIVER PARTNER VALUE PROPOSITION */}
+      <section id="drivers" className="py-16 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+              <div className="lg:col-span-8 space-y-4">
+                <div className="inline-flex items-center space-x-2 bg-amber-500/20 text-amber-400 px-3 py-1 rounded-full text-xs font-black border border-amber-500/30">
+                  <Car className="w-3.5 h-3.5" />
+                  <span>{language === 'so' ? 'Wadaage Driver Partner' : 'Drive & Earn with Wadaage'}</span>
+                </div>
+
+                <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+                  {language === 'so'
+                    ? 'Gaadhigaaga Ku Samee Dakhli Sare Maalin Kasta!'
+                    : 'Turn Your Car Into Daily Income in Hargeisa!'}
+                </h2>
+
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  {language === 'so'
+                    ? 'Wadaage waxa uu bixiyaa komishanka ugu jaban Somaliland (kaliya 1,000 SLSH oo go’an safarkiiba). Dakhligaagu toos ayuu kuugu soo dhacayaa ZAAD/eDahab.'
+                    : 'Wadaage charges the lowest flat fee in Somaliland (fixed 1,000 SLSH per completed trip). Direct instant mobile payouts to ZAAD and eDahab.'}
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 text-xs">
+                  <div className="flex items-center space-x-2 text-slate-300">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>1,000 SLSH Flat Fee</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-slate-300">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Instant Daily Cash</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-slate-300">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Zero Registration Fee</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-4 flex flex-col items-center justify-center space-y-3">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('driver')}
+                  className="w-full py-4 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl shadow-xl shadow-amber-400/20 transition active:scale-95 cursor-pointer"
+                >
+                  {language === 'so' ? 'Isku Diiwaangeli Darawal' : 'Register as Driver'}
+                </button>
+                <span className="text-[11px] text-slate-400 text-center">
+                  Ansixin degdeg ah 24 saac gudahood
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 8. CUSTOMER TESTIMONIALS */}
+      <section className="py-16 bg-slate-950 border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center space-y-2 mb-12">
+            <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+              {language === 'so' ? 'Maxay Macaamiishu Ka Yidhaahdeen?' : 'What Our Riders Say'}
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+              {language === 'so'
+                ? 'Kumanaan qof oo ku safra Wadaage maalin kasta guud ahaan Somaliland.'
+                : 'Thousands of daily riders trust Wadaage for their commute.'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {cmsConfig.testimonials.map((t) => (
+              <div
+                key={t.id}
+                className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3"
+              >
+                <div className="flex items-center space-x-1 text-amber-400">
+                  {[...Array(t.rating || 5)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 fill-amber-400" />
+                  ))}
+                </div>
+
+                <p className="text-xs text-slate-300 leading-relaxed italic">
+                  "{language === 'so' ? t.commentSo : t.commentEn}"
+                </p>
+
+                <div className="flex items-center space-x-3 pt-2 border-t border-slate-800">
+                  <img
+                    src={t.avatarUrl}
+                    alt={t.authorName}
+                    className="w-10 h-10 rounded-full object-cover border border-emerald-500"
+                  />
+                  <div>
+                    <h4 className="font-bold text-xs text-white">{t.authorName}</h4>
+                    <span className="text-[10px] text-slate-400">{t.roleOrLocation}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 9. DOWNLOAD APP SECTION */}
+      <section id="download" className="py-16 bg-slate-900 border-b border-slate-800 text-center">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-6">
+          <div className="w-14 h-14 rounded-3xl bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center font-black border border-emerald-500/30">
+            <Smartphone className="w-7 h-7" />
+          </div>
+
+          <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+            {language === 'so'
+              ? 'Ku Isticmaal Wadaage Mobilkaaga (PWA & Android)'
+              : 'Get Wadaage on Your Smartphone'}
+          </h2>
+
+          <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+            {language === 'so'
+              ? 'Wadaage waxaad toos ugu isticmaali kartaa web browser-kaaga ama waxaad ku rakiban kartaa sida App oo kale.'
+              : 'Use Wadaage directly in your browser or install it directly to your home screen for instant 1-tap bookings.'}
+          </p>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 pt-2">
+            <button
+              type="button"
+              onClick={() => onNavigate('rider')}
+              className="w-full sm:w-auto px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl text-xs uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>{language === 'so' ? 'Fur Rider Web App' : 'Launch Rider App'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('driver')}
+              className="w-full sm:w-auto px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-white font-black rounded-2xl text-xs uppercase tracking-wider transition active:scale-95 border border-slate-700 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Car className="w-4 h-4 text-amber-400" />
+              <span>{language === 'so' ? 'Fur Driver App' : 'Launch Driver App'}</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* 10. COMPREHENSIVE FOOTER */}
+      <footer className="bg-slate-950 text-slate-400 text-xs py-12 border-t border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+          <div className="space-y-3">
+            <div className="flex items-center space-x-2">
+              <span className="text-xl font-black text-white">Wadaage</span>
+              <span className="text-xl font-black text-emerald-400">.com</span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Adeegga gaadiidka ee koowaad ee Somaliland. Wadaage Share, Taxi gaar ah, iyo Safarrada gobollada.
+            </p>
+            <div className="flex items-center space-x-2 pt-1">
+              <SomalilandFlag className="w-5 h-3 rounded-xs" />
+              <span className="text-[11px] font-bold text-slate-300">Hargeisa, Somaliland</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-white text-xs uppercase tracking-wider">Adeegyada</h4>
+            <ul className="space-y-1.5 text-[11px]">
+              <li><button onClick={() => onNavigate('rider')} className="hover:text-emerald-400 transition">Wadaage Share (30% Off)</button></li>
+              <li><button onClick={() => onNavigate('rider')} className="hover:text-emerald-400 transition">Normal Taxi Gaar ah</button></li>
+              <li><button onClick={() => onNavigate('rider')} className="hover:text-emerald-400 transition">Safarada Madaarka (Airport)</button></li>
+              <li><button onClick={() => onNavigate('rider')} className="hover:text-emerald-400 transition">Safarrada Gobollada (Intercity)</button></li>
+            </ul>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-white text-xs uppercase tracking-wider">Xiriirka</h4>
+            <ul className="space-y-1.5 text-[11px]">
+              <li>Tel: <b className="text-slate-300">{cmsConfig.contact.phonePrimary}</b></li>
+              <li>WhatsApp: <b className="text-emerald-400">{cmsConfig.contact.whatsappNumber}</b></li>
+              <li>Email: <b className="text-slate-300">{cmsConfig.contact.supportEmail}</b></li>
+              <li>{cmsConfig.contact.officeAddress}</li>
+            </ul>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-white text-xs uppercase tracking-wider">Maamulka</h4>
+            <ul className="space-y-1.5 text-[11px]">
+              <li><button onClick={() => onNavigate('admin')} className="hover:text-emerald-400 transition">Admin Dashboard</button></li>
+              <li><button onClick={() => onNavigate('driver')} className="hover:text-emerald-400 transition">Driver Portal</button></li>
+              <li><button onClick={() => onNavigate('rider')} className="hover:text-emerald-400 transition">Passenger App</button></li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] text-slate-500">
+          <span>&copy; {new Date().getFullYear()} Wadaage.com — Dhammaan xuquuqda way dhowran tahay.</span>
+          <span>Designed for Somaliland Smart Mobility.</span>
         </div>
       </footer>
     </div>
