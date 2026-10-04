@@ -480,78 +480,12 @@ export const MobilePassengerApp: React.FC = () => {
               </div>
 
               {/* ACTIVE RIDE CARD OVERLAY - Floating docked at bottom of full-bleed map */}
-              {currentRide && currentRide.status !== 'searching' && (
+              {currentRide && (
                 <div className="absolute bottom-3 inset-x-3 z-30 max-w-md mx-auto pointer-events-auto">
                   <ActiveRideCard onOpenSafetyModal={() => setShowSafetyModal(true)} />
                 </div>
               )}
             </div>
-
-            {/* SEARCHING STATE WITH ANIMATED RADAR PULSE */}
-            {currentRide && currentRide.status === 'searching' && (
-              <div className="relative z-30 bg-white border-t border-slate-200 shadow-2xl p-4 flex flex-col space-y-4 animate-fadeIn">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div>
-                    <h3 className="font-black text-slate-900 text-base">
-                      {t.driverSearchingTitle}
-                    </h3>
-                    <p className="text-xs text-slate-500 font-medium">
-                      {t.driverSearchingSub}
-                    </p>
-                  </div>
-                  <div className="w-9 h-9 rounded-full bg-emerald-50 text-[#008751] flex items-center justify-center">
-                    <Car className="w-5 h-5 animate-bounce" />
-                  </div>
-                </div>
-
-                <div className="relative w-full h-32 bg-slate-950 rounded-2xl flex items-center justify-center overflow-hidden shadow-inner">
-                  <div className="absolute w-28 h-28 rounded-full border border-emerald-500/30 animate-ping pointer-events-none" />
-                  <div className="absolute w-20 h-20 rounded-full border border-emerald-400/40 animate-pulse pointer-events-none" />
-                  <div className="absolute w-12 h-12 rounded-full bg-emerald-500/20 pointer-events-none" />
-                  <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-emerald-500/10 to-transparent animate-spin duration-3000 pointer-events-none" />
-                  <div className="relative z-10 flex flex-col items-center">
-                    <VehicleIllustration type={selectedCategory === 'wadaage_share' ? 'wadaage' : 'taxi'} className="w-20 h-12 drop-shadow-[0_0_12px_rgba(0,135,81,0.8)]" />
-                    <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mt-1">
-                      Wadaage Dispatch
-                    </span>
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">{t.nearbyCars}:</span>
-                    <span className="font-extrabold text-[#008751]">{t.nearbyCarsCount}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">{language === 'so' ? 'Meesha aad joogto' : 'Pickup'}:</span>
-                    <span className="font-bold text-slate-900 truncate max-w-[200px]">{currentRide.pickup?.name || 'Pickup Location'}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">{language === 'so' ? 'Halka aad u socoto' : 'Dropoff'}:</span>
-                    <span className="font-bold text-slate-900 truncate max-w-[200px]">{currentRide.dropoff?.name || 'Dropoff Destination'}</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-sm">
-                    <span className="font-bold text-slate-800">{t.tripFare}:</span>
-                    <span className="font-black text-[#008751]">
-                      {Math.round((Number(currentRide.totalFare) || 0) * EXCHANGE_RATE_USD_TO_SLSH).toLocaleString()} SLSH
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={isCancelling}
-                  onClick={handleCancelSearch}
-                  className="w-full py-2.5 bg-slate-100 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-rose-600 font-bold rounded-xl text-xs transition active:scale-95 cursor-pointer touch-manipulation flex items-center justify-center space-x-1.5"
-                >
-                  {isCancelling ? (
-                    <span>{language === 'so' ? 'Waa la baajinayaa...' : 'Cancelling...'}</span>
-                  ) : (
-                    <span>{t.cancelSearch}</span>
-                  )}
-                </button>
-              </div>
-            )}
 
             {/* BOTTOM VEHICLE SELECTION SHEET - Compact design for maximum map area */}
             {!currentRide && (

@@ -1,59 +1,63 @@
+import React, { useEffect, useState } from 'react';
 import {
-  AlertTriangle,
-  Briefcase,
   Car,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
   Compass,
-  Info,
-  Layers,
-  Map,
   MapPin,
-  Maximize2,
   MessageSquare,
-  Minimize2,
+  Navigation,
   PhoneCall,
-  Radar,
   Receipt,
+  RotateCw,
   Share2,
   Shield,
+  ShieldCheck,
   Sparkles,
   Star,
   Users,
-  Wallet,
   X,
   Zap,
+  AlertTriangle,
+  Radar,
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
 import { useRide } from '../../context/RideContext';
-import { formatCurrency, EXCHANGE_RATE_USD_TO_SLSH } from '../../utils/geo';
+import { EXCHANGE_RATE_USD_TO_SLSH } from '../../utils/geo';
+import { resolveVehicleColor } from '../../utils/vehicleColors';
+import { RealisticCarGraphic } from '../Common/RealisticCarGraphic';
+import { WaitingTimeMeter } from '../Common/WaitingTimeMeter';
 import { CallDriverModal } from './CallDriverModal';
 import { ChatModal } from './ChatModal';
 import { ShareTripModal } from './ShareTripModal';
 import { ColorBeaconModal } from '../Common/ColorBeaconModal';
-import { RealisticCarGraphic } from '../Common/RealisticCarGraphic';
-import { resolveVehicleColor } from '../../utils/vehicleColors';
-import { WaitingTimeMeter } from '../Common/WaitingTimeMeter';
 
 interface ActiveRideCardProps {
   onOpenSafetyModal: () => void;
 }
 
 export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModal }) => {
-  const { currentRide, cancelRide, acceptBid, drivers, unreadChatCount, dispatchBatchPoolRideNow, initiateVoiceCall } = useRide();
+  const {
+    currentRide,
+    cancelRide,
+    drivers,
+    unreadChatCount,
+    language,
+    t,
+  } = useRide();
+
   const [showChat, setShowChat] = useState(false);
   const [showCall, setShowCall] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showFareBreakdown, setShowFareBreakdown] = useState(false);
   const [showBeaconModal, setShowBeaconModal] = useState(false);
-  const [cancelReason, setCancelReason] = useState('Driver taking too long');
-  const [isFullMapMode, setIsFullMapMode] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [cancelReason, setCancelReason] = useState('Changed plans');
 
-  // 3-Minute Pickup Countdown Timer State
-  const [waitSeconds, setWaitSeconds] = useState(180); // 3 mins = 180s
+  // 3-Minute Pickup Countdown Timer
+  const [waitSeconds, setWaitSeconds] = useState(180);
 
   useEffect(() => {
     if (currentRide?.status === 'driver_arrived') {
@@ -68,673 +72,465 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
 
   if (!currentRide) return null;
 
-  const matchedDriver = currentRide.assignedDriverId ? drivers.find((d) => d.id === currentRide.assignedDriverId) : null;
-  const driverVehicle = (matchedDriver as any)?.vehicle || {};
-  // Dynamically map from driver_name field in database/active trip object, strictly eliminating fake placeholders
-  const resolvedDriverName = (currentRide as any).driver_name || currentRide.driverName || matchedDriver?.name || 'Wadaage Captain';
-  const driverName = currentRide.status === 'searching' ? 'Raadinta darawalka...' : resolvedDriverName;
-  const driverPhone = (currentRide as any).driver_phone || currentRide.driverPhone || matchedDriver?.phone || '';
-  const driverAvatar = (currentRide as any).driver_avatar || currentRide.driverAvatar || matchedDriver?.avatar || 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80';
-  const driverRating = matchedDriver?.rating || 5.0;
-  const vehicleModel = (currentRide as any).vehicle_model || currentRide.vehicleModel || driverVehicle.model || (matchedDriver as any)?.vehicle_model || 'Toyota Vitz';
-  const vehiclePlate = (currentRide as any).license_plate || currentRide.licensePlate || driverVehicle.licensePlate || (matchedDriver as any)?.vehicle_plate || 'SL-24810';
-  const vehicleColor = driverVehicle.color || (matchedDriver as any)?.vehicle_color || 'White';
-
-  const assignedDriver = {
-    id: currentRide.assignedDriverId || matchedDriver?.id || 'live_driver',
-    name: driverName,
-    phone: driverPhone,
-    avatar: driverAvatar,
-    rating: driverRating,
-    vehicle: {
-      model: vehicleModel,
-      licensePlate: vehiclePlate,
-      color: vehicleColor,
-    },
-  };
-  const waitMins = Math.floor(waitSeconds / 60);
-  const waitRemainingSecs = waitSeconds % 60;
-
-  const isShare = currentRide.category === 'wadaage_share' || currentRide.isShared;
-  const ratePerKm = isShare ? 0.40 : 0.80;
-  const ratePerKmSos = Math.round(ratePerKm * EXCHANGE_RATE_USD_TO_SLSH);
-  const totalFare = Number(currentRide.totalFare) || 0;
+  const totalFare = Number(currentRide.totalFare) || 2.50;
   const totalSos = Math.round(totalFare * EXCHANGE_RATE_USD_TO_SLSH);
   const pickupName = currentRide.pickup?.name || 'Pickup Point';
   const dropoffName = currentRide.dropoff?.name || 'Destination';
+  const isShare = currentRide.category === 'wadaage_share' || currentRide.isShared;
 
-  return (
-    <>
-      {/* 1. MINIMIZED / FULL MAP COMPACT RIDER HUD */}
-      {isFullMapMode && currentRide.status !== 'searching' ? (
-        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-3xl border border-slate-200/90 dark:border-slate-800 p-3.5 shadow-2xl space-y-2.5 animate-in fade-in slide-in-from-bottom-2">
-          {/* Top Row: Milestone Indicator & Expand Details Button */}
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center space-x-2 min-w-0">
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs font-black text-slate-900 dark:text-white truncate block">
-                  {currentRide.status === 'accepted' && 'Darawalku wuu soo socdaa (~3 daqiiqo)'}
-                  {currentRide.status === 'driver_arrived' && 'Darawalku wuxuu joogaa goobta!'}
-                  {currentRide.status === 'in_progress' && `U socda: ${dropoffName}`}
-                </span>
-                <span className="text-[10px] text-slate-500 truncate block">
-                  {currentRide.categoryName || 'Wadaage'} • {currentRide.distanceKm} km • PIN: <b className="font-mono text-emerald-600 dark:text-emerald-400">{currentRide.otpCode || '4912'}</b>
-                </span>
-              </div>
+  // 1. SEARCHING DISPATCH STATE (Modern floating card above map)
+  if (currentRide.status === 'searching') {
+    return (
+      <div className="w-full bg-white/98 dark:bg-slate-900/98 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 rounded-3xl shadow-2xl overflow-hidden p-4 space-y-3.5 select-none animate-in fade-in slide-in-from-bottom-3 duration-300">
+        <div className="w-10 h-1 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-1" />
+
+        {/* Searching Header with Pulsing Radar */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="relative flex items-center justify-center">
+              <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping absolute" />
+              <span className="w-3 h-3 rounded-full bg-emerald-600 relative" />
             </div>
-
-            <button
-              type="button"
-              onClick={() => setIsFullMapMode(false)}
-              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 text-xs font-black flex items-center space-x-1 shrink-0 active:scale-95 transition shadow-xs cursor-pointer"
-              title="Faahfaahin / Show Details"
-            >
-              <span>Faahfaahin</span>
-              <ChevronUp className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Bottom Row: Driver, Vehicle, Fare & 1-Tap Quick Actions */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center space-x-2.5 min-w-0">
-              <img
-                src={assignedDriver.avatar}
-                alt={assignedDriver.name}
-                className="w-10 h-10 rounded-full object-cover border-2 border-emerald-500 shrink-0"
-              />
-              <div className="min-w-0">
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-xs font-black text-slate-900 dark:text-white truncate">
-                    {assignedDriver.name}
-                  </span>
-                  <span className="flex items-center text-[10px] font-bold text-amber-500">
-                    ★ {assignedDriver.rating}
-                  </span>
-                </div>
-                <div className="text-[10px] text-slate-500 font-medium truncate flex items-center gap-1">
-                  <span
-                    className="w-2 h-2 rounded-full inline-block border border-black/30 shrink-0"
-                    style={{ backgroundColor: resolveVehicleColor(assignedDriver.vehicle.color).hex }}
-                  />
-                  <span>{assignedDriver.vehicle.model} ({assignedDriver.vehicle.color})</span>
-                  <span>•</span>
-                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{assignedDriver.vehicle.licensePlate}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Price & Action Buttons */}
-            <div className="flex items-center space-x-1.5 shrink-0">
-              <div className="text-right mr-1">
-                <div className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                  ${totalFare.toFixed(2)}
-                </div>
-                <div className="text-[9px] text-slate-400 font-medium">
-                  {totalSos.toLocaleString()} SLSH
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowChat(true)}
-                className="relative p-2.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition font-bold text-xs flex items-center justify-center active:scale-95 cursor-pointer shadow-sm"
-                title="Open Chat"
-              >
-                <MessageSquare className="w-4 h-4" />
-                {unreadChatCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-pulse">
-                    {unreadChatCount}
-                  </span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowCall(true)}
-                className="p-2.5 rounded-xl bg-slate-800 text-emerald-400 hover:bg-slate-700 transition text-xs font-bold flex items-center justify-center active:scale-95 cursor-pointer shadow-sm"
-                title="Call Driver"
-              >
-                <PhoneCall className="w-4 h-4" />
-              </button>
-
-              {currentRide.beaconColor && (
-                <button
-                  type="button"
-                  onClick={() => setShowBeaconModal(true)}
-                  className="p-2.5 rounded-xl text-slate-950 font-black text-xs shadow hover:brightness-110 active:scale-95 transition cursor-pointer"
-                  style={{ backgroundColor: currentRide.beaconColor?.hex || '#06B6D4' }}
-                  title="Open Beacon"
-                >
-                  <Zap className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* 2. EXPANDED ACTIVE RIDE DETAILS SHEET */
-        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xl space-y-4 max-h-[80vh] overflow-y-auto">
-          {/* Status Header with Dedicated Full Map Toggle Button */}
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center space-x-3">
-              {currentRide.status === 'searching' && (
-                <div className="relative flex items-center justify-center">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center animate-spin">
-                    <Radar className="w-5 h-5" />
-                  </div>
-                </div>
-              )}
-              {currentRide.status === 'accepted' && (
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold">
-                  <Car className="w-5 h-5" />
-                </div>
-              )}
-              {currentRide.status === 'driver_arrived' && (
-                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center font-bold">
-                  <CheckCircle2 className="w-5 h-5 animate-bounce" />
-                </div>
-              )}
-              {currentRide.status === 'in_progress' && (
-                <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-bold">
-                  <Car className="w-5 h-5" />
-                </div>
-              )}
-
-              <div>
-                <div className="font-extrabold text-slate-900 dark:text-white text-base">
-                  {currentRide.status === 'searching' && 'Searching for Nearby Drivers...'}
-                  {currentRide.status === 'accepted' && 'Driver Assigned & En Route'}
-                  {currentRide.status === 'driver_arrived' && 'Driver Has Arrived at Pickup Point!'}
-                  {currentRide.status === 'in_progress' && 'Ride in Progress'}
-                </div>
-                <p className="text-xs text-slate-500">
-                  {currentRide.categoryName || 'Wadaage Ride'} • {pickupName} → {dropoffName}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              {currentRide.status !== 'searching' && (
-                <button
-                  type="button"
-                  onClick={() => setIsFullMapMode(true)}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center space-x-1.5 transition active:scale-95 shadow-xs cursor-pointer"
-                  title="Minimize to Full Map View / Arag Khariidada Buuxda"
-                >
-                  <Map className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span className="hidden sm:inline">Khariidad Buuxda</span>
-                  <span className="sm:hidden">Map</span>
-                </button>
-              )}
-
-              <div className="text-right">
-                <span className="font-black text-emerald-600 dark:text-emerald-400 text-base">
-                  ${totalFare.toFixed(2)} USD
-                </span>
-                <div className="text-[10px] text-slate-400 uppercase font-semibold">
-                  {currentRide.paymentMethod || 'cash'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-        {/* Prominent Price & Fare Breakdown Card for Rider */}
-        <div className="bg-gradient-to-br from-slate-50 to-emerald-50/40 dark:from-slate-800/80 dark:to-emerald-950/20 border border-emerald-500/20 rounded-2xl p-3.5 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <span className="p-2 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold">
-                <Receipt className="w-4 h-4" />
-              </span>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Your Ride Total Fare</span>
-                <div className="flex items-baseline space-x-1.5">
-                  <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                    ${totalFare.toFixed(2)} USD
-                  </span>
-                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    ({totalSos.toLocaleString()} SLSH)
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowFareBreakdown(!showFareBreakdown)}
-              className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-emerald-500/30 hover:bg-emerald-500 hover:text-slate-950 transition flex items-center space-x-1"
-            >
-              <span>{showFareBreakdown ? 'Hide Breakdown' : 'Fare Breakdown'}</span>
-              {showFareBreakdown ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-            <span>
-              Tariff: <b>{isShare ? '$0.40 USD / 4,500 SLSH' : '$0.80 USD / 9,000 SLSH'} per km</b>
-            </span>
-            <span>
-              Distance: <b>{currentRide.distanceKm} km</b> • Est. <b>{currentRide.durationMins} mins</b>
-            </span>
-          </div>
-
-          {/* Expandable Itemized Breakdown */}
-          {showFareBreakdown && (
-            <div className="mt-2 pt-2 border-t border-dashed border-emerald-500/30 space-y-1.5 text-xs animate-in fade-in duration-150">
-              <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                <span>Base / Minimum Fare:</span>
-                <span className="font-mono font-semibold">${(ratePerKm).toFixed(2)} USD ({ratePerKmSos.toLocaleString()} SLSH)</span>
-              </div>
-              <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                <span>Distance Rate ({currentRide.distanceKm || 0} km @ ${(Number(ratePerKm) || 0).toFixed(2)}/km):</span>
-                <span className="font-mono font-semibold">${((Number(currentRide.distanceKm) || 0) * ratePerKm).toFixed(2)} USD ({Math.round((Number(currentRide.distanceKm) || 0) * ratePerKmSos).toLocaleString()} SLSH)</span>
-              </div>
-              {Number(currentRide.discountAmount) > 0 && (
-                <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
-                  <span>Wadaage Share Discount:</span>
-                  <span className="font-mono">-${(Number(currentRide.discountAmount) || 0).toFixed(2)} USD</span>
-                </div>
-              )}
-              {((currentRide.waitingSeconds || 0) > 0 || currentRide.isWaitingActive) && (
-                <div className="flex justify-between text-amber-600 dark:text-amber-400 font-semibold">
-                  <span>Wakhtiga Sugitaanka (Waiting: {currentRide.waitingMinutes || Math.ceil((currentRide.waitingSeconds || 0) / 60)} daq @ 500 SLSH/daq):</span>
-                  <span className="font-mono font-bold">+${(currentRide.waitingFeeUsd || 0).toFixed(2)} USD (+{((currentRide.waitingFeeSlsh !== undefined ? currentRide.waitingFeeSlsh : (currentRide.waitingMinutes || 1) * 500)).toLocaleString()} SLSH)</span>
-                </div>
-              )}
-              <div className="flex justify-between pt-1 border-t border-slate-200 dark:border-slate-700 font-black text-slate-900 dark:text-white">
-                <span>Payment Mode:</span>
-                <span className="uppercase text-emerald-600 dark:text-emerald-400">{currentRide.paymentMethod || 'cash'}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Live In-Trip Waiting Meter for Normal Taxi */}
-        {(currentRide.status === 'driver_arrived' || currentRide.status === 'in_progress') && (
-          <WaitingTimeMeter isDriverView={false} />
-        )}
-
-        {/* Searching Animation State */}
-        {currentRide.status === 'searching' && (
-          <div className="space-y-3">
-            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 p-4 rounded-2xl text-center space-y-2.5">
-              <div className="flex items-center justify-center space-x-2 text-blue-900 dark:text-blue-200 font-bold text-xs">
-                <Radar className="w-4 h-4 text-blue-600 animate-spin" />
-                <span>
-                  {currentRide.scheduledTime
-                    ? `📅 Dalab Hore loo Sii Qorsheeyay: Ballanta ${currentRide.scheduledTime} • Qiimaha Hore loo Cayimay waa Xaqiijisan yahay!`
-                    : currentRide.isBookByBid
-                    ? 'Helitaanka dalabyada darawallada ugu dhow...'
-                    : 'Waxa lagugu xirayaa darawalka kuugu dhow (Qiyaastii 2-3 daqiiqo)...'}
-                </span>
-              </div>
-              <div className="w-full bg-blue-100 dark:bg-blue-900/50 rounded-full h-2 overflow-hidden">
-                <div className="bg-blue-600 h-2 rounded-full animate-pulse w-3/4"></div>
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Fadlan sug inta darawalku aqbalayo dalabkaaga
+            <div>
+              <h3 className="font-black text-slate-900 dark:text-white text-sm">
+                {language === 'so' ? 'Raadinta Darawalka Kuugu Dhow...' : 'Searching for Nearby Drivers...'}
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                {language === 'so' ? 'Waxa laguu dirayaa darawallada Hargeysa' : 'Connecting to closest captain in Hargeisa'}
               </p>
             </div>
-
-            {/* If Book by Bid active, display driver bids! */}
-            {currentRide.isBookByBid && currentRide.bids && currentRide.bids.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-xs font-black text-slate-900 dark:text-white block uppercase tracking-wider">
-                  Driver Offers Received ({currentRide.bids.length})
-                </span>
-                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                  {currentRide.bids.map((bid) => (
-                    <div
-                      key={bid.id}
-                      className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center justify-between shadow-sm"
-                    >
-                      <div className="flex items-center space-x-2.5">
-                        <img
-                          src={bid.driverAvatar}
-                          alt={bid.driverName}
-                          className="w-10 h-10 rounded-full object-cover border border-amber-400"
-                        />
-                        <div>
-                          <div className="flex items-center space-x-1.5">
-                            <span className="font-extrabold text-xs text-slate-900 dark:text-white">
-                              {bid.driverName}
-                            </span>
-                            <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold px-1.5 rounded">
-                              ★ {bid.driverRating}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500">{bid.vehicleModel}</p>
-                        </div>
-                      </div>
-
-                      <div className="text-right space-y-1">
-                        <div className="font-black text-xs text-emerald-600 dark:text-emerald-400 font-mono">
-                          ${bid.priceUsd.toFixed(2)} USD
-                        </div>
-                        <button
-                          onClick={() => acceptBid(bid.id)}
-                          className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-[11px] uppercase tracking-wider shadow"
-                        >
-                          Accept
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="text-center">
-              <button
-                onClick={() => setShowCancelModal(true)}
-                className="text-xs font-bold text-rose-600 hover:underline pt-1 inline-block"
-              >
-                Cancel Booking Request
-              </button>
-            </div>
           </div>
-        )}
 
-        {/* Assigned Driver Profile Card & Color Beacon Button */}
-        {currentRide.status !== 'searching' && (
-          <div className="space-y-3">
-            {/* Color Beacon Identification Prompt (Last 50 Meters Connection) */}
-            <div className="bg-slate-950 text-white p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between shadow-lg">
-              <div className="flex items-center space-x-3">
-                <div
-                  className="w-10 h-10 rounded-2xl flex items-center justify-center font-black shadow-lg animate-pulse"
-                  style={{
-                    backgroundColor: currentRide.beaconColor?.hex || '#06B6D4',
-                  }}
-                >
-                  <Sparkles className="w-5 h-5 text-slate-950" />
-                </div>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs font-black text-white">Color Beacon Active</span>
-                    <span
-                      className="text-[10px] font-black px-2 py-0.5 rounded-full uppercase"
-                      style={{
-                        backgroundColor: (currentRide.beaconColor?.hex || '#06B6D4') + '33',
-                        color: currentRide.beaconColor?.hex || '#06B6D4',
-                        borderColor: currentRide.beaconColor?.hex || '#06B6D4',
-                      }}
-                    >
-                      {currentRide.beaconColor?.name || 'Neon Cyan'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    Flash your screen so Captain {assignedDriver.name} spots you in crowds.
-                  </p>
-                </div>
-              </div>
+          <div className="text-right">
+            <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">
+              {totalSos.toLocaleString()} SLSH
+            </span>
+            <span className="text-[10px] text-slate-400 block font-bold">
+              (${totalFare.toFixed(2)})
+            </span>
+          </div>
+        </div>
 
-              <button
-                onClick={() => setShowBeaconModal(true)}
-                className="px-3 py-2 rounded-xl text-slate-950 font-black text-xs shadow-lg hover:brightness-110 active:scale-95 transition flex items-center space-x-1.5 shrink-0"
-                style={{
-                  backgroundColor: currentRide.beaconColor?.hex || '#06B6D4',
-                }}
-              >
-                <Zap className="w-3.5 h-3.5" />
-                <span>Open Beacon</span>
-              </button>
-            </div>
-            <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-md space-y-3">
-              {/* Top Row: Driver Profile & Actions */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <img
-                    src={assignedDriver.avatar}
-                    alt={assignedDriver.name}
-                    className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500 shadow-sm"
-                  />
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
-                        {assignedDriver.name}
-                      </h3>
-                      <span className="flex items-center text-xs text-amber-500 font-bold bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                        <Star className="w-3 h-3 fill-amber-400 mr-0.5" />
-                        {assignedDriver.rating}
-                      </span>
-                    </div>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Wadaage Verified Captain
-                    </span>
-                  </div>
-                </div>
+        {/* Dynamic Route Chips */}
+        <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 text-xs space-y-1.5">
+          <div className="flex items-center space-x-2 truncate">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            <span className="text-slate-500 text-[10px] font-bold shrink-0">{language === 'so' ? 'Ka:' : 'From:'}</span>
+            <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{pickupName}</span>
+          </div>
+          <div className="flex items-center space-x-2 truncate">
+            <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+            <span className="text-slate-500 text-[10px] font-bold shrink-0">{language === 'so' ? 'Ku:' : 'To:'}</span>
+            <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{dropoffName}</span>
+          </div>
+        </div>
 
-                {/* Action Buttons: Chat & Call */}
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setShowChat(true)}
-                    className="relative p-2.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition-all shadow-md font-bold text-xs flex items-center space-x-1.5 active:scale-95"
-                    title="Open Chat"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span className="hidden sm:inline">Chat</span>
-                    {unreadChatCount > 0 && (
-                      <span className="w-4 h-4 bg-red-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-pulse">
-                        {unreadChatCount}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setShowCall(true)}
-                    className="p-2.5 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all text-xs font-bold flex items-center space-x-1 active:scale-95"
-                    title="Call Driver"
-                  >
-                    <PhoneCall className="w-4 h-4 text-emerald-400" />
-                  </button>
-                </div>
-              </div>
+        {/* Linear Animated Dispatch Bar */}
+        <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+          <div className="bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600 h-full rounded-full animate-pulse w-3/4" />
+        </div>
 
-              {/* Bottom Row: Real Vehicle Visual Card with Exact Registered Color */}
-              <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-950 rounded-xl border border-slate-800 flex items-center justify-between text-white shadow-inner">
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-1.5">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full inline-block border border-white/40 shadow-xs"
-                      style={{ backgroundColor: resolveVehicleColor(assignedDriver.vehicle.color).hex }}
-                    />
-                    <span className="text-xs font-black text-white">
-                      {assignedDriver.vehicle.model}
-                    </span>
-                    <span className="text-slate-400 text-[10px] font-bold">
-                      ({resolveVehicleColor(assignedDriver.vehicle.color).somaliName})
-                    </span>
-                  </div>
+        {/* Cancel Button */}
+        <button
+          type="button"
+          onClick={() => setShowCancelModal(true)}
+          className="w-full py-2.5 bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-bold rounded-xl text-xs transition active:scale-95 cursor-pointer touch-manipulation flex items-center justify-center space-x-1 border border-slate-200/60 dark:border-slate-700"
+        >
+          <X className="w-3.5 h-3.5" />
+          <span>{language === 'so' ? 'Baaji Raadinta (Cancel)' : 'Cancel Search'}</span>
+        </button>
 
-                  <div className="flex items-center space-x-2">
-                    <span className="bg-slate-800 text-emerald-400 font-mono font-black text-xs px-2 py-0.5 rounded tracking-wider border border-slate-700">
-                      {assignedDriver.vehicle.licensePlate}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-semibold">
-                      Midabka: <b className="text-slate-200">{assignedDriver.vehicle.color}</b>
-                    </span>
-                  </div>
-                </div>
-
-                <div className="shrink-0 pl-2">
-                  <RealisticCarGraphic
-                    color={assignedDriver.vehicle.color}
-                    model={assignedDriver.vehicle.model}
-                    className="w-20 h-11"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* 3-Minute Pickup Waiting Timer Rule if Driver Arrived */}
-            {currentRide.status === 'driver_arrived' && (
-              <div className="bg-amber-500/10 border border-amber-500/30 p-3.5 rounded-2xl flex items-center justify-between text-xs text-amber-200">
-                <div className="flex items-center space-x-2.5">
-                  <div className="p-2 rounded-xl bg-amber-500 text-slate-950 font-black">
-                    <Clock className="w-4 h-4 animate-spin" />
-                  </div>
-                  <div>
-                    <div className="font-extrabold text-amber-300">Driver Arrived at Pickup Gate</div>
-                    <p className="text-[11px] text-amber-200/90 mt-0.5">
-                      Wadaage Share Policy: Driver will wait max <b>3 minutes</b> to keep co-passengers on schedule.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-amber-500/40 text-center font-mono font-black text-amber-400 text-sm shrink-0">
-                  {waitMins}:{waitRemainingSecs < 10 ? `0${waitRemainingSecs}` : waitRemainingSecs}
-                </div>
-              </div>
-            )}
-
-            {/* Wadaage Share Co-Passenger Banner & Geo Sequence Manifest if active */}
-            {currentRide.isShared && (
-              <div className="space-y-2">
-                {currentRide.coPassenger ? (
-                  <div className="bg-emerald-500/10 border border-emerald-500/30 p-3.5 rounded-2xl flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="p-2 rounded-lg bg-emerald-500 text-slate-950">
-                        <Users className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-extrabold text-xs text-slate-900 dark:text-white">
-                            Wadaage Share Co-Passenger Matched!
-                          </span>
-                          <span className="bg-emerald-500 text-slate-950 text-[9px] font-extrabold px-1.5 py-0.2 rounded uppercase">
-                            Saved 30%
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300">
-                          Co-rider <b>{currentRide.coPassenger?.name || 'Co-Passenger'}</b> joining route near{' '}
-                          {currentRide.coPassenger?.pickupLocation?.name || 'En route stop'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-2xl flex items-center space-x-3">
-                    <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
-                      <Users className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-extrabold text-xs text-slate-900 dark:text-white">
-                          Wadaage Share Active
-                        </span>
-                        <span className="bg-emerald-500 text-slate-950 text-[9px] font-extrabold px-1.5 py-0.2 rounded uppercase">
-                          30% Off
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                        Looking for real co-riders heading the same direction along your route. Direct trip continues smoothly.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Route Itinerary Stops for Shared Ride */}
-                {currentRide.optimalWaypointsSequence && currentRide.optimalWaypointsSequence.length > 2 && (
-                  <div className="bg-slate-900 text-white p-3 rounded-2xl border border-slate-800 text-xs space-y-2">
-                    <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-extrabold tracking-wider">
-                      <span>Jidka Safarka (Route Itinerary)</span>
-                      <span className="text-blue-400 font-mono">Toos ah</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px]">
-                      {currentRide.optimalWaypointsSequence.map((wp, idx) => (
-                        <div
-                          key={wp.id || idx}
-                          className={`p-2 rounded-xl border ${
-                            wp.status === 'completed'
-                              ? 'bg-slate-800/60 border-slate-700 opacity-60'
-                              : 'bg-slate-800 border-blue-500/40 ring-1 ring-blue-500/20'
-                          }`}
-                        >
-                          <span className={`text-[9px] font-bold block ${wp.type === 'PICKUP' ? 'text-emerald-400' : 'text-blue-400'}`}>
-                            ISTOOBKA {idx + 1} ({wp.type === 'PICKUP' ? 'Qaadasho' : 'Dejin'}) {wp.status === 'completed' ? '✓' : ''}
-                          </span>
-                          <span className="text-white font-semibold truncate block">
-                            {wp.passengerName}
-                          </span>
-                          <span className="text-[10px] text-slate-400 truncate block">
-                            {wp.location?.name || 'Waypoint'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Turn-by-Turn Guidance, Hargeisa Road Corridor & ETA */}
-            <div className="bg-slate-900 text-white p-3.5 rounded-xl flex flex-col space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></div>
-                  <div>
-                    <div className="font-bold">
-                      {currentRide.status === 'accepted' && 'Driver heading to Pickup on Hargeisa roads (ETA ~3 mins)'}
-                      {currentRide.status === 'driver_arrived' && 'Driver waiting at pickup gate'}
-                      {currentRide.status === 'in_progress' && `En route to ${currentRide.dropoff?.name || 'Destination'}`}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      Safety PIN: <span className="font-mono text-emerald-400 font-bold">{currentRide.otpCode || '4912'}</span> (Share with driver before starting)
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0">
-                  <span className="text-[10px] font-bold text-emerald-400 font-mono">
-                    {currentRide.distanceKm} km
-                  </span>
-                </div>
-              </div>
-
-              {currentRide.roadSummary && (
-                <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400 flex items-center gap-1">
-                    <span>🛣️ Route:</span>
-                    <span className="text-slate-200 font-semibold">{currentRide.roadSummary}</span>
-                  </span>
-                  <span className="text-emerald-400 text-[10px] font-mono font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                    Real Road Nav
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Utility Bar: Share Trip, SOS & Cancel */}
-            <div className="flex items-center justify-between pt-1">
-              <button
-                onClick={() => setShowShareModal(true)}
-                className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-emerald-500 flex items-center space-x-1.5 transition-colors"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Share Live Tracking</span>
-              </button>
-
-              <button
-                onClick={onOpenSafetyModal}
-                className="text-xs font-semibold text-rose-500 hover:text-rose-600 flex items-center space-x-1.5 transition-colors"
-              >
-                <Shield className="w-3.5 h-3.5" />
-                <span>Safety Toolkit</span>
-              </button>
-
-              {currentRide.status !== 'in_progress' && (
+        {showCancelModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-sm w-full p-5 shadow-2xl space-y-3">
+              <h4 className="font-black text-sm text-slate-900 dark:text-white">
+                {language === 'so' ? 'Ma rabtaa inaad baajiso raadinta?' : 'Cancel driver search?'}
+              </h4>
+              <p className="text-xs text-slate-500">
+                {language === 'so' ? 'Dalabkaaga waa la joojinayaa.' : 'Your ride request will be stopped.'}
+              </p>
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
-                  onClick={() => setShowCancelModal(true)}
-                  className="text-xs font-bold text-rose-500 hover:text-rose-600 transition-colors bg-rose-50 dark:bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900"
+                  type="button"
+                  onClick={() => setShowCancelModal(false)}
+                  className="py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs"
                 >
-                  Cancel Ride
+                  {language === 'so' ? 'Sii Sug' : 'Keep Waiting'}
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    cancelRide();
+                    setShowCancelModal(false);
+                  }}
+                  className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs"
+                >
+                  {language === 'so' ? 'Haa, Baaji' : 'Confirm Cancel'}
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
-      )}
+    );
+  }
+
+  // 2. ACCEPTED / DRIVER ARRIVED / IN_PROGRESS STATE
+  const matchedDriver = currentRide.assignedDriverId
+    ? drivers.find((d) => d.id === currentRide.assignedDriverId)
+    : null;
+
+  const driverVehicle = (matchedDriver as any)?.vehicle || {};
+  const driverName =
+    (currentRide as any).driver_name ||
+    currentRide.driverName ||
+    matchedDriver?.name ||
+    'Wadaage Captain';
+  const driverPhone =
+    (currentRide as any).driver_phone ||
+    currentRide.driverPhone ||
+    matchedDriver?.phone ||
+    '';
+  const driverAvatar =
+    (currentRide as any).driver_avatar ||
+    currentRide.driverAvatar ||
+    matchedDriver?.avatar ||
+    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80';
+  const driverRating = matchedDriver?.rating || 4.9;
+
+  const vehicleModel =
+    (currentRide as any).vehicle_model ||
+    currentRide.vehicleModel ||
+    driverVehicle.model ||
+    'Toyota Vitz';
+  const vehiclePlate =
+    (currentRide as any).license_plate ||
+    currentRide.licensePlate ||
+    driverVehicle.licensePlate ||
+    'SL-4921';
+  const vehicleColor =
+    driverVehicle.color ||
+    (matchedDriver as any)?.vehicle_color ||
+    'White';
+
+  const colorDef = resolveVehicleColor(vehicleColor);
+  const waitMins = Math.floor(waitSeconds / 60);
+  const waitSecs = waitSeconds % 60;
+
+  // Status title & color accents
+  const getStatusBadge = () => {
+    switch (currentRide.status) {
+      case 'accepted':
+        return {
+          title: language === 'so' ? 'Darawalku wuu soo socdaa (~3 daq)' : 'Captain is on the way (~3 mins)',
+          bg: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-800 dark:text-emerald-200',
+          dot: 'bg-emerald-500 animate-ping',
+        };
+      case 'driver_arrived':
+        return {
+          title: language === 'so' ? 'Darawalku wuxuu joogaa goobta!' : 'Captain arrived at pickup point!',
+          bg: 'bg-blue-500/15 border-blue-500/30 text-blue-800 dark:text-blue-200',
+          dot: 'bg-blue-500 animate-bounce',
+        };
+      case 'in_progress':
+        return {
+          title: language === 'so' ? `Safarku wuu socdaa • ${dropoffName}` : `En route to ${dropoffName}`,
+          bg: 'bg-emerald-600/15 border-emerald-500/30 text-emerald-900 dark:text-emerald-100',
+          dot: 'bg-emerald-600 animate-pulse',
+        };
+      default:
+        return {
+          title: language === 'so' ? 'Safarka Wuu Socdaa' : 'Ride Active',
+          bg: 'bg-slate-500/15 border-slate-500/30 text-slate-700 dark:text-slate-300',
+          dot: 'bg-slate-500',
+        };
+    }
+  };
+
+  const statusBadge = getStatusBadge();
+
+  return (
+    <>
+      {/* Sleek Mobile Bottom Sheet Container */}
+      <div className="w-full bg-white/98 dark:bg-slate-900/98 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 rounded-3xl shadow-2xl overflow-hidden transition-all duration-300 select-none">
+        {/* Grab bar & Status Row */}
+        <div className="px-4 pt-3 pb-2 border-b border-slate-100 dark:border-slate-800/80">
+          <div className="w-10 h-1 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-2.5 cursor-pointer" onClick={() => setIsMinimized(!isMinimized)} />
+          
+          <div className="flex items-center justify-between gap-2">
+            {/* Status Pill */}
+            <div className={`flex items-center space-x-2 px-2.5 py-1 rounded-full border text-xs font-black min-w-0 ${statusBadge.bg}`}>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${statusBadge.dot}`} />
+              <span className="truncate">{statusBadge.title}</span>
+            </div>
+
+            {/* Boarding Safety PIN Badge & Minimize Toggle */}
+            <div className="flex items-center space-x-1.5 shrink-0">
+              <div className="flex items-center space-x-1 bg-slate-900 dark:bg-slate-800 text-emerald-400 font-mono font-black text-xs px-2 py-1 rounded-xl border border-slate-700 shadow-xs" title="Share PIN with Captain">
+                <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans">PIN</span>
+                <span>{currentRide.otpCode || '4912'}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsMinimized(!isMinimized)}
+                className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition"
+                title={isMinimized ? 'Expand' : 'Collapse'}
+              >
+                {isMinimized ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* DRIVER & REAL VEHICLE CARD */}
+        <div className="p-3.5 space-y-3">
+          <div className="flex items-center justify-between gap-3 bg-gradient-to-br from-slate-50 to-emerald-50/30 dark:from-slate-800/60 dark:to-slate-800/90 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+            {/* Driver Avatar & Info */}
+            <div className="flex items-center space-x-2.5 min-w-0">
+              <div className="relative shrink-0">
+                <img
+                  src={driverAvatar}
+                  alt={driverName}
+                  className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500 shadow-sm"
+                />
+                <span className="absolute -bottom-1 -right-1 bg-amber-400 text-slate-950 font-black text-[9px] px-1 py-0.2 rounded-full border border-white dark:border-slate-900 shadow-xs flex items-center">
+                  ★ {driverRating}
+                </span>
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center space-x-1.5">
+                  <h4 className="font-black text-sm text-slate-900 dark:text-white truncate">
+                    {driverName}
+                  </h4>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                </div>
+
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 font-semibold mt-0.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full inline-block border border-black/20 shrink-0 shadow-2xs"
+                    style={{ backgroundColor: colorDef.hex }}
+                  />
+                  <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{vehicleModel}</span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-amber-600 dark:text-amber-400 font-bold">{colorDef.somaliName.split(' ')[0]}</span>
+                </div>
+
+                <div className="mt-1">
+                  <span className="inline-block bg-slate-950 text-emerald-400 font-mono font-black text-[11px] px-2 py-0.5 rounded-md tracking-wider border border-slate-800 shadow-xs">
+                    {vehiclePlate}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Real Vehicle Graphic with Exact Registered Color */}
+            <div className="shrink-0 flex flex-col items-end">
+              <RealisticCarGraphic
+                color={vehicleColor}
+                model={vehicleModel}
+                className="w-20 h-11"
+              />
+              <span className="text-[10px] font-mono font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                ${totalFare.toFixed(2)} USD
+              </span>
+            </div>
+          </div>
+
+          {/* 4 TOUCH-FRIENDLY CIRCULAR QUICK ACTION BUTTONS */}
+          <div className="grid grid-cols-4 gap-2 text-center text-xs select-none">
+            {/* 1. Phone Call */}
+            <button
+              type="button"
+              onClick={() => {
+                if (driverPhone) {
+                  window.location.href = `tel:${driverPhone}`;
+                } else {
+                  setShowCall(true);
+                }
+              }}
+              className="flex flex-col items-center justify-center p-2 rounded-2xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800/80 active:scale-95 transition cursor-pointer"
+            >
+              <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-md mb-1">
+                <PhoneCall className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-200">
+                {language === 'so' ? 'Wac' : 'Call'}
+              </span>
+            </button>
+
+            {/* 2. In-App Chat */}
+            <button
+              type="button"
+              onClick={() => setShowChat(true)}
+              className="relative flex flex-col items-center justify-center p-2 rounded-2xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 border border-blue-200/80 dark:border-blue-800/80 active:scale-95 transition cursor-pointer"
+            >
+              <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-md mb-1">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-blue-800 dark:text-blue-200">
+                {language === 'so' ? 'Fariin' : 'Chat'}
+              </span>
+              {unreadChatCount > 0 && (
+                <span className="absolute top-1.5 right-2 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-ping">
+                  {unreadChatCount}
+                </span>
+              )}
+            </button>
+
+            {/* 3. Color Beacon (Identify in crowds) */}
+            <button
+              type="button"
+              onClick={() => setShowBeaconModal(true)}
+              className="flex flex-col items-center justify-center p-2 rounded-2xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 border border-amber-200/80 dark:border-amber-800/80 active:scale-95 transition cursor-pointer"
+            >
+              <div
+                className="w-8 h-8 rounded-full text-slate-950 flex items-center justify-center shadow-md mb-1 font-black"
+                style={{ backgroundColor: currentRide.beaconColor?.hex || '#F59E0B' }}
+              >
+                <Zap className="w-4 h-4 fill-current" />
+              </div>
+              <span className="text-[10px] font-bold text-amber-800 dark:text-amber-200">
+                {language === 'so' ? 'Iftiin' : 'Beacon'}
+              </span>
+            </button>
+
+            {/* 4. Safety & Share */}
+            <button
+              type="button"
+              onClick={() => setShowShareModal(true)}
+              className="flex flex-col items-center justify-center p-2 rounded-2xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 border border-purple-200/80 dark:border-purple-800/80 active:scale-95 transition cursor-pointer"
+            >
+              <div className="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-md mb-1">
+                <Share2 className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-purple-800 dark:text-purple-200">
+                {language === 'so' ? 'La Wadaag' : 'Share'}
+              </span>
+            </button>
+          </div>
+
+          {/* NORMAL TAXI WAITING TIME METER (When active or accrued) */}
+          {((currentRide.waitingSeconds || 0) > 0 || currentRide.isWaitingActive) && (
+            <WaitingTimeMeter isDriverView={false} />
+          )}
+
+          {/* 3-MINUTE PICKUP COUNTDOWN (When driver arrived) */}
+          {currentRide.status === 'driver_arrived' && (
+            <div className="bg-amber-500/15 border border-amber-500/30 p-2.5 rounded-2xl flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-2 text-amber-900 dark:text-amber-200">
+                <Clock className="w-4 h-4 text-amber-500 animate-spin shrink-0" />
+                <span className="font-bold text-[11px]">
+                  {language === 'so' ? 'Darawalku wuu ku sugayaa:' : 'Captain is waiting at gate:'}
+                </span>
+              </div>
+              <span className="bg-slate-950 text-amber-400 font-mono font-black text-xs px-2.5 py-0.5 rounded-lg border border-amber-500/40">
+                {waitMins}:{waitSecs < 10 ? `0${waitSecs}` : waitSecs}
+              </span>
+            </div>
+          )}
+
+          {/* EXPANDED SECTION (Route, Fare Breakdown, Cancel) */}
+          {!isMinimized && (
+            <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800 animate-in fade-in duration-200">
+              {/* Route Card */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 text-xs space-y-2">
+                <div className="flex items-start space-x-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Kaqabasho (Pickup)</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 truncate block">{pickupName}</span>
+                  </div>
+                </div>
+
+                <div className="border-l-2 border-dashed border-slate-300 dark:border-slate-600 ml-1 h-3.5 my-0.5" />
+
+                <div className="flex items-start space-x-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-rose-500 mt-1 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Kadhigid (Dropoff)</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 truncate block">{dropoffName}</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                  <span>Masaafada: <b>{currentRide.distanceKm || 2.4} km</b></span>
+                  <span>Qiyaasta: <b>~{currentRide.durationMins || 10} daq</b></span>
+                </div>
+              </div>
+
+              {/* Fare Summary & Accordion Breakdown */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                      <Receipt className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Wadarta Qiimaha (Total Fare)</span>
+                      <div className="flex items-baseline space-x-1.5">
+                        <span className="text-base font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                          {totalSos.toLocaleString()} SLSH
+                        </span>
+                        <span className="text-xs text-slate-500 font-semibold">
+                          (${totalFare.toFixed(2)})
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowFareBreakdown(!showFareBreakdown)}
+                    className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-white dark:bg-slate-700 px-2.5 py-1 rounded-xl border border-emerald-300 dark:border-emerald-600 flex items-center space-x-1"
+                  >
+                    <span>{showFareBreakdown ? 'Qari' : 'Faahfaahin'}</span>
+                    {showFareBreakdown ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                </div>
+
+                {/* Itemized Fare Table */}
+                {showFareBreakdown && (
+                  <div className="pt-2 border-t border-dashed border-slate-300 dark:border-slate-700 space-y-1 text-[11px]">
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                      <span>Qiimaha Aasaasiga ah (Base):</span>
+                      <span className="font-mono">${(isShare ? 0.40 : 0.80).toFixed(2)} USD</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                      <span>Masaafada ({currentRide.distanceKm} km):</span>
+                      <span className="font-mono">${(Number(currentRide.distanceKm || 1) * (isShare ? 0.40 : 0.80)).toFixed(2)} USD</span>
+                    </div>
+                    {Number(currentRide.waitingFeeUsd || 0) > 0 && (
+                      <div className="flex justify-between text-amber-600 dark:text-amber-400 font-semibold">
+                        <span>Sugitaanka ({currentRide.waitingMinutes || 1} daq @ 500 SLSH):</span>
+                        <span className="font-mono font-bold">+${Number(currentRide.waitingFeeUsd).toFixed(2)} USD (+{((currentRide.waitingFeeSlsh || 500)).toLocaleString()} SLSH)</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold text-slate-900 dark:text-white pt-1 border-t border-slate-200 dark:border-slate-700">
+                      <span>Habka Lacag-bixinta:</span>
+                      <span className="uppercase text-emerald-600 dark:text-emerald-400">{currentRide.paymentMethod || 'cash'}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Cancel Button (Only if not yet in_progress) */}
+              {currentRide.status !== 'in_progress' && (
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowCancelModal(true)}
+                    className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:underline py-1 px-3"
+                  >
+                    {language === 'so' ? 'Baaji Dalabka Safarka' : 'Cancel Ride Request'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Cancel Confirmation Modal */}
       {showCancelModal && (
@@ -743,9 +539,10 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
               <h3 className="font-black text-base text-slate-900 dark:text-white flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-rose-500" />
-                <span>Cancel Trip Request</span>
+                <span>{language === 'so' ? 'Ma Hubtaa inaad Baajinayso?' : 'Cancel Trip Request?'}</span>
               </h3>
               <button
+                type="button"
                 onClick={() => setShowCancelModal(false)}
                 className="p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white"
               >
@@ -755,17 +552,17 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
 
             <div className="space-y-2 text-xs">
               <label className="font-bold text-slate-700 dark:text-slate-300 block">
-                Please select reason for cancellation:
+                {language === 'so' ? 'Dooro sababta baajinta:' : 'Please select reason for cancellation:'}
               </label>
               {[
-                'Driver taking too long',
-                'Driver asked for extra cash',
-                'Wrong pickup / dropoff address',
-                'Driver not moving',
-                'Changed my mind / plans changed',
+                'Darawalku wuu soo daahay (Taking too long)',
+                'Qorshahaygii ayaa isbeddelay (Changed my mind)',
+                'Ciwaan khaldan ayaan geliyay (Wrong address)',
+                'Darawalku ma dhaqaaqayo (Driver not moving)',
               ].map((reason) => (
                 <button
                   key={reason}
+                  type="button"
                   onClick={() => setCancelReason(reason)}
                   className={`w-full text-left p-2.5 rounded-xl border font-semibold transition ${
                     cancelReason === reason
@@ -780,26 +577,28 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
 
             <div className="grid grid-cols-2 gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setShowCancelModal(false)}
                 className="py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs"
               >
-                Keep Trip
+                {language === 'so' ? 'Sii Wad Safarka' : 'Keep Trip'}
               </button>
               <button
+                type="button"
                 onClick={() => {
                   cancelRide();
                   setShowCancelModal(false);
                 }}
                 className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs uppercase"
               >
-                Confirm Cancel
+                {language === 'so' ? 'Haa, Baaji' : 'Confirm Cancel'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* In-app Chat Modal */}
+      {/* Modals: Chat, Call, Share, Beacon */}
       {showChat && <ChatModal onClose={() => setShowChat(false)} />}
       {showCall && <CallDriverModal onClose={() => setShowCall(false)} />}
       {showShareModal && <ShareTripModal onClose={() => setShowShareModal(false)} />}
