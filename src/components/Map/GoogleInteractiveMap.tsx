@@ -98,6 +98,10 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
   const centerStartRef = useRef<{ lat: number; lng: number }>({ lat: 9.5600, lng: 44.0650 });
   const hasMovedRef = useRef(false);
 
+  // Pinch-to-zoom state for mobile touch
+  const initialPinchDistRef = useRef<number | null>(null);
+  const initialZoomRef = useRef<number>(14);
+
   // Container dimensions with robust fallback
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
     width: typeof window !== 'undefined' ? window.innerWidth : 800,
@@ -202,7 +206,7 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
     isDraggingRef.current = false;
   };
 
-  // Touch handlers for mobile
+  // Touch handlers for mobile smooth panning and pinch-to-zoom
   const touchStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1) {
@@ -210,31 +214,56 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
       hasMovedRef.current = false;
       touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       centerStartRef.current = { ...center };
+      initialPinchDistRef.current = null;
+    } else if (e.touches.length === 2) {
+      isDraggingRef.current = false;
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      initialPinchDistRef.current = dist;
+      initialZoomRef.current = zoom;
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDraggingRef.current || e.touches.length !== 1) return;
-    const dx = e.touches[0].clientX - touchStartRef.current.x;
-    const dy = e.touches[0].clientY - touchStartRef.current.y;
+    if (e.touches.length === 1 && isDraggingRef.current) {
+      const dx = e.touches[0].clientX - touchStartRef.current.x;
+      const dy = e.touches[0].clientY - touchStartRef.current.y;
 
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-      hasMovedRef.current = true;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        hasMovedRef.current = true;
+      }
+
+      const centerPixel = latLngToPixel(centerStartRef.current.lat, centerStartRef.current.lng, zoom);
+      const newPixel = { x: centerPixel.x - dx, y: centerPixel.y - dy };
+      const newLatLng = pixelToLatLng(newPixel.x, newPixel.y, zoom);
+      setCenter(newLatLng);
+    } else if (e.touches.length === 2 && initialPinchDistRef.current !== null) {
+      const currentDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const ratio = currentDist / initialPinchDistRef.current;
+      if (ratio > 1.25) {
+        setZoom((z) => Math.min(18, Math.round(initialZoomRef.current + 1)));
+        initialPinchDistRef.current = currentDist;
+        initialZoomRef.current = Math.min(18, initialZoomRef.current + 1);
+      } else if (ratio < 0.75) {
+        setZoom((z) => Math.max(10, Math.round(initialZoomRef.current - 1)));
+        initialPinchDistRef.current = currentDist;
+        initialZoomRef.current = Math.max(10, initialZoomRef.current - 1);
+      }
     }
-
-    const centerPixel = latLngToPixel(centerStartRef.current.lat, centerStartRef.current.lng, zoom);
-    const newPixel = { x: centerPixel.x - dx, y: centerPixel.y - dy };
-    const newLatLng = pixelToLatLng(newPixel.x, newPixel.y, zoom);
-    setCenter(newLatLng);
   };
 
   const handleTouchEnd = () => {
     isDraggingRef.current = false;
+    initialPinchDistRef.current = null;
   };
 
   // Wheel Zoom
   const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
     if (e.deltaY < 0) {
       setZoom((z) => Math.min(18, z + 1));
     } else {
@@ -298,25 +327,25 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
     }
   };
 
-  // Map tile calculations
+  // Map tile calculations with buffer padding to prevent black margins
   const centerPixel = latLngToPixel(center.lat, center.lng, zoom);
   const minTile = latLngToTile(
-    pixelToLatLng(centerPixel.x - dimensions.width / 2, centerPixel.y - dimensions.height / 2, zoom).lat,
-    pixelToLatLng(centerPixel.x - dimensions.width / 2, centerPixel.y - dimensions.height / 2, zoom).lng,
+    pixelToLatLng(centerPixel.x - dimensions.width / 2 - 256, centerPixel.y - dimensions.height / 2 - 256, zoom).lat,
+    pixelToLatLng(centerPixel.x - dimensions.width / 2 - 256, centerPixel.y - dimensions.height / 2 - 256, zoom).lng,
     zoom
   );
   const maxTile = latLngToTile(
-    pixelToLatLng(centerPixel.x + dimensions.width / 2, centerPixel.y + dimensions.height / 2, zoom).lat,
-    pixelToLatLng(centerPixel.x + dimensions.width / 2, centerPixel.y + dimensions.height / 2, zoom).lng,
+    pixelToLatLng(centerPixel.x + dimensions.width / 2 + 256, centerPixel.y + dimensions.height / 2 + 256, zoom).lat,
+    pixelToLatLng(centerPixel.x + dimensions.width / 2 + 256, centerPixel.y + dimensions.height / 2 + 256, zoom).lng,
     zoom
   );
 
   const tiles = useMemo(() => {
     const list: Array<{ x: number; y: number; left: number; top: number; key: string; url: string; fallbackUrl: string }> = [];
-    const tileStartX = Math.max(0, minTile.x - 1);
-    const tileEndX = maxTile.x + 1;
-    const tileStartY = Math.max(0, maxTile.y - 1);
-    const tileEndY = minTile.y + 1;
+    const tileStartX = Math.max(0, minTile.x - 2);
+    const tileEndX = maxTile.x + 2;
+    const tileStartY = Math.max(0, maxTile.y - 2);
+    const tileEndY = minTile.y + 2;
 
     for (let tx = tileStartX; tx <= tileEndX; tx++) {
       for (let ty = tileStartY; ty <= tileEndY; ty++) {
@@ -341,7 +370,7 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
           y: ty,
           left: screenX,
           top: screenY,
-          key: `${zoom}_${tx}_${ty}`,
+          key: `${mapLayer}_${zoom}_${tx}_${ty}`,
           url,
           fallbackUrl,
         });
@@ -390,7 +419,9 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
   return (
     <div
       ref={containerRef}
-      className="w-full relative overflow-hidden select-none font-sans bg-[#F2EFE9] dark:bg-[#1E293B] cursor-grab active:cursor-grabbing"
+      className={`w-full relative overflow-hidden select-none font-sans cursor-grab active:cursor-grabbing ${
+        mapLayer === 'dark' ? 'bg-[#111827]' : mapLayer === 'satellite' ? 'bg-[#0f172a]' : 'bg-[#e5e3df]'
+      }`}
       style={{
         height,
         backgroundImage:
@@ -398,6 +429,7 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
             ? 'radial-gradient(#CBD5E1 1px, transparent 1px)'
             : undefined,
         backgroundSize: '24px 24px',
+        touchAction: 'none',
       }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -421,7 +453,7 @@ export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
                 target.src = t.fallbackUrl;
               }
             }}
-            className="absolute w-[256px] h-[256px] select-none pointer-events-none transition-opacity duration-200"
+            className="absolute w-[256px] h-[256px] select-none pointer-events-none"
             style={{
               left: `${t.left}px`,
               top: `${t.top}px`,
