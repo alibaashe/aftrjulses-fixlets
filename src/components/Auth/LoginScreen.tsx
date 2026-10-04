@@ -918,7 +918,7 @@ export const LoginScreen: React.FC = () => {
               </div>
               <h3 className="text-lg font-black text-white">Xaqiijinta WhatsApp-ka (WhatsApp OTP)</h3>
               <p className="text-xs text-emerald-200">
-                Koodka xaqiijinta 4-god ah waxaa loo diray WhatsApp lambarkaaga{' '}
+                Koodka xaqiijinta 6-god ah waxaa loo diray WhatsApp lambarkaaga{' '}
                 <span className="font-mono font-bold text-[#00E575]">
                   {pendingRegistrationData?.phone || getFullPhone()}
                 </span>
@@ -929,7 +929,7 @@ export const LoginScreen: React.FC = () => {
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-[11px] font-extrabold text-emerald-300 uppercase tracking-wider">
-                    GELI KOODKA OTP (4-DIGIT CODE)
+                    GELI KOODKA OTP (6-DIGIT CODE)
                   </label>
                   <div className="flex items-center space-x-1 text-xs font-mono font-bold text-amber-400">
                     <Clock className="w-3.5 h-3.5" />
@@ -944,7 +944,7 @@ export const LoginScreen: React.FC = () => {
                   maxLength={6}
                   value={otpInput}
                   onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
-                  placeholder="••••"
+                  placeholder="••••••"
                   className="w-full bg-black/60 border-2 border-[#00E575]/50 rounded-2xl px-4 py-3 text-center text-2xl font-mono font-black tracking-[0.5em] text-[#00E575] focus:outline-none focus:border-[#00E575] focus:ring-2 focus:ring-[#00E575]/30 shadow-inner"
                   autoFocus
                 />

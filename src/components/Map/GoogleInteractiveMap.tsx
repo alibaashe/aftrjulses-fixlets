@@ -1,13 +1,6 @@
-// Source: Google Maps Platform Code Assist
+// Source: Google Maps Platform Architecture & Resilient Telematics
 import * as React from 'react';
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
-import {
-  APIProvider,
-  Map,
-  useMap,
-  useMapsLibrary,
-} from '@vis.gl/react-google-maps';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   Crosshair,
   Layers,
@@ -16,12 +9,13 @@ import {
   MapPin,
   Sparkles,
   Compass,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import { useRide } from '../../context/RideContext';
 import { CITY_LOCATIONS } from '../../data/mockData';
 import { findNearestHargeisaPlace } from '../../utils/geo';
-import { LeafletInteractiveMap } from './LeafletInteractiveMap';
-import { MapLibreInteractiveMap } from './MapLibreInteractiveMap';
+import { RealisticVehicleMarker } from './RealisticVehicleMarker';
 
 interface GoogleInteractiveMapProps {
   showSurgeHeatmap?: boolean;
@@ -37,335 +31,38 @@ const RAW_GOOGLE_MAPS_KEY =
   (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ||
   '';
 
-// Production Google Maps key
 const GOOGLE_MAPS_KEY = RAW_GOOGLE_MAPS_KEY.trim();
 
-// Custom Map ID if configured in Google Cloud Console
-const CUSTOM_MAP_ID =
-  (process.env as any).GOOGLE_MAPS_MAP_ID ||
-  (import.meta as any).env?.VITE_GOOGLE_MAPS_MAP_ID ||
-  undefined;
-
-// Safe React Error Boundary to catch any Map SDK initialization errors
-interface ErrorBoundaryProps {
-  fallback: React.ReactNode;
-  children: React.ReactNode;
-}
-interface ErrorBoundaryState {
-  hasError: boolean;
-}
-
-class MapErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  public props: ErrorBoundaryProps;
-  public state: ErrorBoundaryState;
-
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.props = props;
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.warn('Google Maps SDK initialization error intercepted:', error.message, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback;
-    }
-    return this.props.children;
-  }
-}
-
-// Resilient Custom HTML Marker for Google Maps (works with or without Map ID)
-const HtmlMapMarker: React.FC<{
-  position: { lat: number; lng: number };
-  children: React.ReactNode;
-  title?: string;
-  zIndex?: number;
-  onClick?: () => void;
-}> = ({ position, children, title, zIndex = 10, onClick }) => {
-  const map = useMap();
-  const [container] = useState(() => {
-    const el = document.createElement('div');
-    el.style.position = 'absolute';
-    return el;
-  });
-  const overlayRef = useRef<google.maps.OverlayView | null>(null);
-
-  useEffect(() => {
-    if (!map || !(window as any).google?.maps?.OverlayView) return;
-
-    class CustomMarkerOverlay extends ((window as any).google?.maps?.OverlayView || class {}) {
-      div: HTMLDivElement;
-      constructor(div: HTMLDivElement) {
-        super();
-        this.div = div;
-      }
-      onAdd() {
-        const panes = this.getPanes();
-        if (panes) {
-          panes.overlayMouseTarget.appendChild(this.div);
-        }
-      }
-      draw() {
-        const projection = this.getProjection();
-        if (!projection || !this.div) return;
-        const point = projection.fromLatLngToDivPixel(
-          new (window as any).google.maps.LatLng(position.lat, position.lng)
-        );
-        if (point) {
-          this.div.style.left = `${point.x}px`;
-          this.div.style.top = `${point.y}px`;
-          this.div.style.transform = 'translate(-50%, -50%)';
-          this.div.style.zIndex = `${zIndex}`;
-          this.div.style.cursor = onClick ? 'pointer' : 'default';
-        }
-      }
-      onRemove() {
-        if (this.div && this.div.parentNode) {
-          this.div.parentNode.removeChild(this.div);
-        }
-      }
-    }
-
-    const overlay = new (CustomMarkerOverlay as any)(container);
-    overlay.setMap(map);
-    overlayRef.current = overlay as any;
-
-    return () => {
-      overlay.setMap(null);
-    };
-  }, [map, container, zIndex, onClick]);
-
-  useEffect(() => {
-    if (overlayRef.current) {
-      overlayRef.current.draw();
-    }
-  }, [position.lat, position.lng]);
-
-  return createPortal(
-    <div title={title} onClick={onClick} className="pointer-events-auto select-none">
-      {children}
-    </div>,
-    container
+// Convert Lat/Lng to Slippy Map Tile Coordinates
+function latLngToTile(lat: number, lng: number, zoom: number) {
+  const n = Math.pow(2, zoom);
+  const rad = (lat * Math.PI) / 180;
+  const x = Math.floor(((lng + 180) / 360) * n);
+  const y = Math.floor(
+    ((1 - Math.asinh(Math.tan(rad)) / Math.PI) / 2) * n
   );
-};
+  return { x, y };
+}
 
-// Sub-component to handle Route Computation & Polyline Rendering for Google Maps (Supports Multi-Passenger Rider A & Rider B Routes)
-const GoogleRouteRenderer: React.FC<{
-  origin: { lat: number; lng: number } | null;
-  destination: { lat: number; lng: number } | null;
-  riderBOrigin?: { lat: number; lng: number } | null;
-  riderBDestination?: { lat: number; lng: number } | null;
-  driverPosition?: { lat: number; lng: number } | null;
-  isDriverApproaching?: boolean;
-  roadCoordinates?: Array<[number, number]>;
-}> = ({ origin, destination, riderBOrigin, riderBDestination, driverPosition, isDriverApproaching, roadCoordinates }) => {
-  const map = useMap();
-  const routesLib = useMapsLibrary('routes');
-  const tripPolylinesRef = useRef<google.maps.Polyline[]>([]);
-  const approachPolylinesRef = useRef<google.maps.Polyline[]>([]);
+// Convert Lat/Lng to exact Pixel coordinates at a given zoom level
+function latLngToPixel(lat: number, lng: number, zoom: number) {
+  const n = Math.pow(2, zoom);
+  const rad = (lat * Math.PI) / 180;
+  const x = ((lng + 180) / 360) * n * 256;
+  const y = ((1 - Math.asinh(Math.tan(rad)) / Math.PI) / 2) * n * 256;
+  return { x, y };
+}
 
-  // Render Trip Route (Supports both Rider A & Rider B polylines in Wadaage Share)
-  useEffect(() => {
-    if (!map || !origin || !destination) {
-      tripPolylinesRef.current.forEach((p) => {
-        try {
-          p.setMap(null);
-        } catch (_) {}
-      });
-      tripPolylinesRef.current = [];
-      return;
-    }
+// Convert Pixel coordinates back to Lat/Lng
+function pixelToLatLng(x: number, y: number, zoom: number) {
+  const n = Math.pow(2, zoom);
+  const lng = (x / (n * 256)) * 360 - 180;
+  const rad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / (n * 256))));
+  const lat = (rad * 180) / Math.PI;
+  return { lat, lng };
+}
 
-    const drawTripPolylines = () => {
-      tripPolylinesRef.current.forEach((p) => {
-        try {
-          p.setMap(null);
-        } catch (_) {}
-      });
-      tripPolylinesRef.current = [];
-
-      try {
-        if ((window as any).google?.maps?.Polyline) {
-          const newPolys: google.maps.Polyline[] = [];
-
-          // Primary Route Polyline (Rider A) - Green
-          let pathPointsA: Array<{ lat: number; lng: number }> = [];
-          if (roadCoordinates && roadCoordinates.length > 1) {
-            pathPointsA = roadCoordinates.map(([lng, lat]) => ({ lat, lng }));
-          } else {
-            pathPointsA = [
-              { lat: origin.lat, lng: origin.lng },
-              { lat: destination.lat, lng: destination.lng },
-            ];
-          }
-
-          const polyA = new (window as any).google.maps.Polyline({
-            path: pathPointsA,
-            strokeColor: '#00E575',
-            strokeOpacity: 0.95,
-            strokeWeight: 6,
-            map,
-          });
-          newPolys.push(polyA);
-
-          // Co-Rider Route Polyline (Rider B) - Teal/Cyan if present
-          if (riderBOrigin && riderBDestination) {
-            const pathPointsB = [
-              { lat: riderBOrigin.lat, lng: riderBOrigin.lng },
-              { lat: riderBDestination.lat, lng: riderBDestination.lng },
-            ];
-            const polyB = new (window as any).google.maps.Polyline({
-              path: pathPointsB,
-              strokeColor: '#0D9488',
-              strokeOpacity: 0.85,
-              strokeWeight: 5,
-              map,
-            });
-            newPolys.push(polyB);
-          }
-
-          tripPolylinesRef.current = newPolys;
-
-          if ((window as any).google?.maps?.LatLngBounds) {
-            const bounds = new (window as any).google.maps.LatLngBounds();
-            pathPointsA.forEach((pt) => bounds.extend(pt));
-            if (riderBOrigin) bounds.extend({ lat: riderBOrigin.lat, lng: riderBOrigin.lng });
-            if (riderBDestination) bounds.extend({ lat: riderBDestination.lat, lng: riderBDestination.lng });
-            if (driverPosition) bounds.extend({ lat: driverPosition.lat, lng: driverPosition.lng });
-            map.fitBounds(bounds, { top: 60, bottom: 60, left: 50, right: 50 });
-          }
-        }
-      } catch (_) {}
-    };
-
-    drawTripPolylines();
-
-    return () => {
-      tripPolylinesRef.current.forEach((p) => {
-        try {
-          p.setMap(null);
-        } catch (_) {}
-      });
-      tripPolylinesRef.current = [];
-    };
-  }, [routesLib, map, origin?.lat, origin?.lng, destination?.lat, destination?.lng, riderBOrigin?.lat, riderBOrigin?.lng, riderBDestination?.lat, riderBDestination?.lng, driverPosition?.lat, driverPosition?.lng, roadCoordinates]);
-
-  // Render Driver Approach Route (Driver to Pickup)
-  useEffect(() => {
-    if (!map || !driverPosition || !origin || !isDriverApproaching) {
-      approachPolylinesRef.current.forEach((p) => {
-        try {
-          p.setMap(null);
-        } catch (_) {}
-      });
-      approachPolylinesRef.current = [];
-      return;
-    }
-
-    try {
-      if ((window as any).google?.maps?.Polyline) {
-        approachPolylinesRef.current.forEach((p) => {
-          try {
-            p.setMap(null);
-          } catch (_) {}
-        });
-        approachPolylinesRef.current = [];
-
-        const approachPoly = new (window as any).google.maps.Polyline({
-          path: [
-            { lat: driverPosition.lat, lng: driverPosition.lng },
-            { lat: origin.lat, lng: origin.lng },
-          ],
-          strokeColor: '#38bdf8',
-          strokeOpacity: 0.85,
-          strokeWeight: 4,
-          geodesic: true,
-          map,
-        });
-
-        approachPolylinesRef.current = [approachPoly];
-      }
-    } catch (_) {}
-
-    return () => {
-      approachPolylinesRef.current.forEach((p) => {
-        try {
-          p.setMap(null);
-        } catch (_) {}
-      });
-      approachPolylinesRef.current = [];
-    };
-  }, [map, driverPosition?.lat, driverPosition?.lng, origin?.lat, origin?.lng, isDriverApproaching]);
-
-  return null;
-};
-
-// Sub-component to handle Map Click for Setting Pickup / Dropoff
-const MapClickHandler: React.FC<{
-  selectableMode: 'pickup' | 'dropoff' | null;
-  onSetLocation: (type: 'pickup' | 'dropoff', lat: number, lng: number) => void;
-}> = ({ selectableMode, onSetLocation }) => {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!map) return;
-
-    const listener = map.addListener('click', (e: google.maps.MapMouseEvent) => {
-      if (!e.latLng) return;
-      const lat = e.latLng.lat();
-      const lng = e.latLng.lng();
-      if (selectableMode === 'dropoff') {
-        onSetLocation('dropoff', lat, lng);
-      } else {
-        onSetLocation('pickup', lat, lng);
-      }
-    });
-
-    return () => {
-      google.maps.event.removeListener(listener);
-    };
-  }, [map, selectableMode, onSetLocation]);
-
-  return null;
-};
-
-// Sub-component to manage Traffic Layer
-const TrafficLayerController: React.FC<{ showTraffic: boolean }> = ({ showTraffic }) => {
-  const map = useMap();
-  const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
-
-  useEffect(() => {
-    if (!map) return;
-
-    if (!trafficLayerRef.current) {
-      trafficLayerRef.current = new google.maps.TrafficLayer();
-    }
-
-    if (showTraffic) {
-      trafficLayerRef.current.setMap(map);
-    } else {
-      trafficLayerRef.current.setMap(null);
-    }
-
-    return () => {
-      if (trafficLayerRef.current) {
-        trafficLayerRef.current.setMap(null);
-      }
-    };
-  }, [map, showTraffic]);
-
-  return null;
-};
-
-// Main Google Interactive Map Renderer
-const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
+export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = ({
   showSurgeHeatmap = false,
   selectableMode = null,
   height = '100%',
@@ -380,85 +77,179 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
     roadRoute,
     roadDistanceKm,
     roadDurationMins,
-    roadRouteSummary,
     role,
     driverGpsStatus,
   } = useRide();
 
-  const activeRide = currentRide;
-  const activeDriver = currentRide?.assignedDriverId ? drivers.find((d) => d.id === currentRide.assignedDriverId) : undefined;
-
-  const map = useMap();
-  const [mapTypeId, setMapTypeId] = useState<string>('roadmap');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [center, setCenter] = useState<{ lat: number; lng: number }>(() => ({
+    lat: pickupLocation?.lat || 9.5600,
+    lng: pickupLocation?.lng || 44.0650,
+  }));
+  const [zoom, setZoom] = useState<number>(14);
+  const [mapLayer, setMapLayer] = useState<'roadmap' | 'satellite' | 'dark'>('roadmap');
   const [showTraffic, setShowTraffic] = useState<boolean>(true);
   const [isCenteringGPS, setIsCenteringGPS] = useState<boolean>(false);
   const [userGpsLocation, setUserGpsLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Live Driver Real-Time Telematics Tracking State (Direct Real Hardware GPS / Firestore stream)
-  const [liveDriverPos, setLiveDriverPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
+  // Dragging & Panning state
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const centerStartRef = useRef<{ lat: number; lng: number }>({ lat: 9.5600, lng: 44.0650 });
+  const hasMovedRef = useRef(false);
 
-  const assignedDriver = activeRide?.assignedDriverId
-    ? drivers.find((d) => d.id === activeRide.assignedDriverId) || activeDriver
-    : activeDriver;
+  // Container dimensions
+  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
+    width: 800,
+    height: 600,
+  });
 
-  // Real-Time Hardware & Network Telematics Sync (Reflects ACTUAL vehicle location faithfully)
   useEffect(() => {
-    if (!assignedDriver && role !== 'driver') {
-      setLiveDriverPos(null);
-      return;
-    }
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.clientWidth || 800,
+          height: containerRef.current.clientHeight || 600,
+        });
+      }
+    };
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, []);
 
-    // If current user is the driver, prioritize real device hardware GPS fix
+  // Update center when pickup location changes initially
+  useEffect(() => {
+    if (pickupLocation?.lat && pickupLocation?.lng) {
+      setCenter({ lat: pickupLocation.lat, lng: pickupLocation.lng });
+    }
+  }, [pickupLocation?.lat, pickupLocation?.lng]);
+
+  // Real-Time Hardware GPS Driver Telematics
+  const assignedDriver = currentRide?.assignedDriverId
+    ? drivers.find((d) => d.id === currentRide.assignedDriverId)
+    : undefined;
+
+  const liveDriverPos = useMemo(() => {
     if (role === 'driver' && driverGpsStatus?.active && driverGpsStatus.lat) {
-      setLiveDriverPos({
+      return {
         lat: driverGpsStatus.lat,
         lng: driverGpsStatus.lng,
         heading: driverGpsStatus.heading || 0,
-      });
-      return;
+      };
     }
-
-    // For passenger and admin, use real coordinates broadcasted by the driver
     if (assignedDriver) {
-      const realLat = assignedDriver.currentLocation?.lat ?? (assignedDriver as any).lat ?? 9.5600;
-      const realLng = assignedDriver.currentLocation?.lng ?? (assignedDriver as any).lng ?? 44.0650;
-      const realHeading = assignedDriver.currentHeading ?? 45;
-
-      setLiveDriverPos({
-        lat: realLat,
-        lng: realLng,
-        heading: realHeading,
-      });
+      return {
+        lat: assignedDriver.currentLocation?.lat ?? (assignedDriver as any).lat ?? 9.5600,
+        lng: assignedDriver.currentLocation?.lng ?? (assignedDriver as any).lng ?? 44.0650,
+        heading: assignedDriver.currentHeading ?? 45,
+      };
     }
-  }, [
-    assignedDriver?.id,
-    assignedDriver?.currentLocation?.lat,
-    assignedDriver?.currentLocation?.lng,
-    assignedDriver?.currentHeading,
-    role,
-    driverGpsStatus?.lat,
-    driverGpsStatus?.lng,
-    driverGpsStatus?.heading,
-    driverGpsStatus?.active,
-  ]);
+    return null;
+  }, [role, driverGpsStatus, assignedDriver]);
 
-  const handleSetLocation = useCallback((type: 'pickup' | 'dropoff', lat: number, lng: number) => {
-    const nearestInfo = findNearestHargeisaPlace(lat, lng);
+  // Mouse & Touch Pan Handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    isDraggingRef.current = true;
+    hasMovedRef.current = false;
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    centerStartRef.current = { ...center };
+  };
 
-    const newLoc = {
-      id: `google_pin_${Date.now()}`,
-      name: nearestInfo.name,
-      address: nearestInfo.address,
-      lat,
-      lng,
-    };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingRef.current) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
 
-    if (type === 'dropoff') {
-      setDropoffLocation(newLoc);
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      hasMovedRef.current = true;
+    }
+
+    const centerPixel = latLngToPixel(centerStartRef.current.lat, centerStartRef.current.lng, zoom);
+    const newPixel = { x: centerPixel.x - dx, y: centerPixel.y - dy };
+    const newLatLng = pixelToLatLng(newPixel.x, newPixel.y, zoom);
+    setCenter(newLatLng);
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!hasMovedRef.current && isDraggingRef.current) {
+      // Map Clicked: Set Pickup or Dropoff
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+
+        const centerPixel = latLngToPixel(center.lat, center.lng, zoom);
+        const targetPixel = {
+          x: centerPixel.x + (clickX - dimensions.width / 2),
+          y: centerPixel.y + (clickY - dimensions.height / 2),
+        };
+        const clickedLatLng = pixelToLatLng(targetPixel.x, targetPixel.y, zoom);
+        handleLocationSelect(clickedLatLng.lat, clickedLatLng.lng);
+      }
+    }
+    isDraggingRef.current = false;
+  };
+
+  // Touch handlers for mobile
+  const touchStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      isDraggingRef.current = true;
+      hasMovedRef.current = false;
+      touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      centerStartRef.current = { ...center };
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDraggingRef.current || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = e.touches[0].clientY - touchStartRef.current.y;
+
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      hasMovedRef.current = true;
+    }
+
+    const centerPixel = latLngToPixel(centerStartRef.current.lat, centerStartRef.current.lng, zoom);
+    const newPixel = { x: centerPixel.x - dx, y: centerPixel.y - dy };
+    const newLatLng = pixelToLatLng(newPixel.x, newPixel.y, zoom);
+    setCenter(newLatLng);
+  };
+
+  const handleTouchEnd = () => {
+    isDraggingRef.current = false;
+  };
+
+  // Wheel Zoom
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      setZoom((z) => Math.min(18, z + 1));
     } else {
-      setPickupLocation(newLoc);
+      setZoom((z) => Math.max(10, z - 1));
     }
-  }, [setDropoffLocation, setPickupLocation]);
+  };
+
+  const handleLocationSelect = useCallback(
+    (lat: number, lng: number) => {
+      const nearest = findNearestHargeisaPlace(lat, lng);
+      const newLoc = {
+        id: `loc_pin_${Date.now()}`,
+        name: nearest.name,
+        address: nearest.address,
+        lat,
+        lng,
+      };
+
+      if (selectableMode === 'dropoff') {
+        setDropoffLocation(newLoc);
+      } else {
+        setPickupLocation(newLoc);
+      }
+    },
+    [selectableMode, setDropoffLocation, setPickupLocation]
+  );
 
   const handleCenterGPS = () => {
     if ('geolocation' in navigator) {
@@ -468,81 +259,197 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
           setIsCenteringGPS(false);
           const { latitude, longitude } = pos.coords;
           setUserGpsLocation({ lat: latitude, lng: longitude });
-          handleSetLocation('pickup', latitude, longitude);
-          if (map) {
-            map.panTo({ lat: latitude, lng: longitude });
-            map.setZoom(15);
-          }
+          setCenter({ lat: latitude, lng: longitude });
+          setZoom(15);
+          handleLocationSelect(latitude, longitude);
         },
         () => {
           setIsCenteringGPS(false);
-          setUserGpsLocation({ lat: 9.5600, lng: 44.0650 });
+          setCenter({ lat: 9.5600, lng: 44.0650 });
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 10000 }
       );
     }
   };
 
-  const handleRecenterBounds = () => {
-    if (!map) return;
+  const handleFitBounds = () => {
     if (pickupLocation && dropoffLocation) {
-      const bounds = new google.maps.LatLngBounds();
-      bounds.extend({ lat: pickupLocation.lat, lng: pickupLocation.lng });
-      bounds.extend({ lat: dropoffLocation.lat, lng: dropoffLocation.lng });
-      if (liveDriverPos) {
-        bounds.extend({ lat: liveDriverPos.lat, lng: liveDriverPos.lng });
-      }
-      map.fitBounds(bounds, { top: 60, bottom: 60, left: 50, right: 50 });
+      const midLat = (pickupLocation.lat + dropoffLocation.lat) / 2;
+      const midLng = (pickupLocation.lng + dropoffLocation.lng) / 2;
+      setCenter({ lat: midLat, lng: midLng });
+      setZoom(13);
     } else if (pickupLocation) {
-      map.panTo({ lat: pickupLocation.lat, lng: pickupLocation.lng });
-      map.setZoom(15);
+      setCenter({ lat: pickupLocation.lat, lng: pickupLocation.lng });
+      setZoom(15);
     } else {
-      map.panTo({ lat: 9.5600, lng: 44.0650 });
-      map.setZoom(14);
+      setCenter({ lat: 9.5600, lng: 44.0650 });
+      setZoom(14);
     }
   };
 
-  const defaultCenter = pickupLocation
-    ? { lat: pickupLocation.lat, lng: pickupLocation.lng }
-    : { lat: 9.5600, lng: 44.0650 };
+  // Map tile calculations
+  const centerPixel = latLngToPixel(center.lat, center.lng, zoom);
+  const minTile = latLngToTile(
+    pixelToLatLng(centerPixel.x - dimensions.width / 2, centerPixel.y - dimensions.height / 2, zoom).lat,
+    pixelToLatLng(centerPixel.x - dimensions.width / 2, centerPixel.y - dimensions.height / 2, zoom).lng,
+    zoom
+  );
+  const maxTile = latLngToTile(
+    pixelToLatLng(centerPixel.x + dimensions.width / 2, centerPixel.y + dimensions.height / 2, zoom).lat,
+    pixelToLatLng(centerPixel.x + dimensions.width / 2, centerPixel.y + dimensions.height / 2, zoom).lng,
+    zoom
+  );
+
+  const tiles = useMemo(() => {
+    const list: Array<{ x: number; y: number; left: number; top: number; key: string; url: string }> = [];
+    const tileStartX = Math.max(0, minTile.x - 1);
+    const tileEndX = maxTile.x + 1;
+    const tileStartY = Math.max(0, maxTile.y - 1);
+    const tileEndY = minTile.y + 1;
+
+    for (let tx = tileStartX; tx <= tileEndX; tx++) {
+      for (let ty = tileStartY; ty <= tileEndY; ty++) {
+        const tilePixelX = tx * 256;
+        const tilePixelY = ty * 256;
+        const screenX = tilePixelX - centerPixel.x + dimensions.width / 2;
+        const screenY = tilePixelY - centerPixel.y + dimensions.height / 2;
+
+        let url = `https://tile.openstreetmap.org/${zoom}/${tx}/${ty}.png`;
+        if (mapLayer === 'satellite') {
+          url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${tx}`;
+        } else if (mapLayer === 'dark') {
+          url = `https://a.basemaps.cartocdn.com/dark_all/${zoom}/${tx}/${ty}.png`;
+        }
+
+        list.push({
+          x: tx,
+          y: ty,
+          left: screenX,
+          top: screenY,
+          key: `${zoom}_${tx}_${ty}`,
+          url,
+        });
+      }
+    }
+    return list;
+  }, [zoom, minTile, maxTile, centerPixel, dimensions, mapLayer]);
+
+  // Coordinate-to-Screen-Pixel converter
+  const toScreenCoord = useCallback(
+    (lat: number, lng: number) => {
+      const p = latLngToPixel(lat, lng, zoom);
+      return {
+        x: p.x - centerPixel.x + dimensions.width / 2,
+        y: p.y - centerPixel.y + dimensions.height / 2,
+      };
+    },
+    [centerPixel, dimensions, zoom]
+  );
+
+  // SVG Polyline Path computation
+  const routeSvgPath = useMemo(() => {
+    if (!pickupLocation || !dropoffLocation) return '';
+    if (roadRoute?.coordinates && roadRoute.coordinates.length > 1) {
+      const points = roadRoute.coordinates.map(([lng, lat]) => {
+        const pt = toScreenCoord(lat, lng);
+        return `${pt.x},${pt.y}`;
+      });
+      return `M ${points.join(' L ')}`;
+    }
+    const p1 = toScreenCoord(pickupLocation.lat, pickupLocation.lng);
+    const p2 = toScreenCoord(dropoffLocation.lat, dropoffLocation.lng);
+    return `M ${p1.x},${p1.y} L ${p2.x},${p2.y}`;
+  }, [pickupLocation, dropoffLocation, roadRoute, toScreenCoord]);
+
+  // Driver Approach Path computation
+  const approachSvgPath = useMemo(() => {
+    if (!liveDriverPos || !pickupLocation || (currentRide?.status !== 'accepted' && currentRide?.status !== 'driver_arrived')) {
+      return '';
+    }
+    const pDriver = toScreenCoord(liveDriverPos.lat, liveDriverPos.lng);
+    const pPickup = toScreenCoord(pickupLocation.lat, pickupLocation.lng);
+    return `M ${pDriver.x},${pDriver.y} L ${pPickup.x},${pPickup.y}`;
+  }, [liveDriverPos, pickupLocation, currentRide?.status, toScreenCoord]);
 
   return (
-    <div className="w-full relative overflow-hidden select-none font-sans" style={{ height }}>
-      <Map
-        defaultCenter={defaultCenter}
-        defaultZoom={14}
-        mapId={CUSTOM_MAP_ID}
-        mapTypeId={mapTypeId}
-        internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-        style={{ width: '100%', height: '100%' }}
-        disableDefaultUI={true}
-        gestureHandling="greedy"
-      >
-          <TrafficLayerController showTraffic={showTraffic} />
-
-          {pickupLocation && dropoffLocation && (
-            <GoogleRouteRenderer
-              origin={{ lat: pickupLocation.lat, lng: pickupLocation.lng }}
-              destination={{ lat: dropoffLocation.lat, lng: dropoffLocation.lng }}
-              riderBOrigin={activeRide?.coPassenger?.pickupLocation ? { lat: activeRide.coPassenger.pickupLocation.lat, lng: activeRide.coPassenger.pickupLocation.lng } : null}
-              riderBDestination={activeRide?.coPassenger?.dropoffLocation ? { lat: activeRide.coPassenger.dropoffLocation.lat, lng: activeRide.coPassenger.dropoffLocation.lng } : null}
-              driverPosition={liveDriverPos ? { lat: liveDriverPos.lat, lng: liveDriverPos.lng } : null}
-              isDriverApproaching={activeRide?.status === 'accepted' || activeRide?.status === 'driver_arrived'}
-              roadCoordinates={roadRoute?.coordinates}
-            />
-          )}
-
-          <MapClickHandler
-            selectableMode={selectableMode}
-            onSetLocation={handleSetLocation}
+    <div
+      ref={containerRef}
+      className="w-full relative overflow-hidden select-none font-sans bg-slate-950 cursor-grab active:cursor-grabbing"
+      style={{ height }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onWheel={handleWheel}
+    >
+      {/* 1. Map Tiles Background Layer */}
+      <div className="absolute inset-0 pointer-events-none">
+        {tiles.map((t) => (
+          <img
+            key={t.key}
+            src={t.url}
+            alt="map-tile"
+            loading="lazy"
+            className="absolute w-[256px] h-[256px] select-none pointer-events-none transition-opacity duration-300"
+            style={{
+              left: `${t.left}px`,
+              top: `${t.top}px`,
+              filter: mapLayer === 'roadmap' ? 'contrast(1.05) saturate(1.1)' : undefined,
+            }}
           />
+        ))}
+      </div>
 
-          {/* User Precise GPS Pin */}
-          {userGpsLocation && (
-            <HtmlMapMarker
-              position={{ lat: userGpsLocation.lat, lng: userGpsLocation.lng }}
-              title="Your Precise GPS Location"
-              zIndex={40}
+      {/* 2. Route Polylines SVG Overlay */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+        {/* Approach Route (Driver to Pickup) */}
+        {approachSvgPath && (
+          <path
+            d={approachSvgPath}
+            fill="none"
+            stroke="#38bdf8"
+            strokeWidth="4"
+            strokeDasharray="6 6"
+            strokeLinecap="round"
+            className="animate-pulse"
+          />
+        )}
+
+        {/* Main Trip Route (Pickup to Dropoff) */}
+        {routeSvgPath && (
+          <>
+            <path
+              d={routeSvgPath}
+              fill="none"
+              stroke="#00E575"
+              strokeWidth="6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ filter: 'drop-shadow(0px 2px 6px rgba(0,229,117,0.5))' }}
+            />
+            <path
+              d={routeSvgPath}
+              fill="none"
+              stroke="#094757"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </>
+        )}
+      </svg>
+
+      {/* 3. HTML Custom Interactive Markers Layer */}
+      <div className="absolute inset-0 pointer-events-none z-20">
+        {/* User Precise GPS Pin */}
+        {userGpsLocation && (() => {
+          const pt = toScreenCoord(userGpsLocation.lat, userGpsLocation.lng);
+          return (
+            <div
+              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ left: `${pt.x}px`, top: `${pt.y}px` }}
             >
               <div className="relative flex flex-col items-center">
                 <div className="absolute -inset-2 bg-blue-500/50 rounded-full animate-ping pointer-events-none" />
@@ -550,22 +457,22 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
                   <div className="w-2 h-2 rounded-full bg-white" />
                 </div>
               </div>
-            </HtmlMapMarker>
-          )}
+            </div>
+          );
+        })()}
 
-          {/* Rider Pickup Beacon Marker */}
-          {pickupLocation && (
-            <HtmlMapMarker
-              position={{ lat: pickupLocation.lat, lng: pickupLocation.lng }}
-              title={`Pickup: ${pickupLocation?.name || 'Halka aad Joogto'}`}
-              zIndex={50}
+        {/* Rider Pickup Beacon Marker */}
+        {pickupLocation && (() => {
+          const pt = toScreenCoord(pickupLocation.lat, pickupLocation.lng);
+          return (
+            <div
+              className="absolute -translate-x-1/2 -translate-y-full pointer-events-none"
+              style={{ left: `${pt.x}px`, top: `${pt.y}px` }}
             >
-              <div className="relative flex flex-col items-center select-none pointer-events-none">
-                {/* Blue Speech Bubble Badge */}
+              <div className="relative flex flex-col items-center select-none pb-1">
                 <div className="relative bg-[#0066F5] text-white text-[11px] font-extrabold px-3 py-1 rounded-xl shadow-xl whitespace-nowrap mb-1 flex items-center space-x-1 border border-blue-400/30 after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-[5px] after:border-transparent after:border-t-[#0066F5]">
                   <span>Halka aad Joogto</span>
                 </div>
-                {/* Blue Location Pulse Beacon */}
                 <div className="relative mt-1 flex items-center justify-center">
                   <div className="absolute -inset-2 bg-blue-500/40 rounded-full animate-ping pointer-events-none" />
                   <div className="w-5 h-5 rounded-full bg-[#0066F5] border-[2.5px] border-white flex items-center justify-center shadow-lg text-white">
@@ -573,160 +480,136 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
                   </div>
                 </div>
               </div>
-            </HtmlMapMarker>
-          )}
+            </div>
+          );
+        })()}
 
-          {/* Rider A Dropoff Marker */}
-          {dropoffLocation && (
-            <HtmlMapMarker
-              position={{ lat: dropoffLocation.lat, lng: dropoffLocation.lng }}
-              title={`Destination A: ${dropoffLocation?.name || 'Dropoff'}`}
-              zIndex={50}
+        {/* Rider Dropoff Marker (Destination A) */}
+        {dropoffLocation && (() => {
+          const pt = toScreenCoord(dropoffLocation.lat, dropoffLocation.lng);
+          return (
+            <div
+              className="absolute -translate-x-1/2 -translate-y-full pointer-events-none"
+              style={{ left: `${pt.x}px`, top: `${pt.y}px` }}
             >
-              <div className="relative flex flex-col items-center">
+              <div className="relative flex flex-col items-center pb-1">
                 <div className="px-2 py-0.5 bg-slate-950/90 border border-indigo-400 text-indigo-300 text-[10px] font-black rounded-md shadow-md mb-1 whitespace-nowrap">
-                  Dropoff A: {(dropoffLocation?.name || 'Dropoff').slice(0, 18)}
+                  Dropoff: {(dropoffLocation.name || 'Dropoff').slice(0, 18)}
                 </div>
                 <div className="w-8 h-8 rounded-full bg-[#094757] border-2 border-[#00E575] flex items-center justify-center text-[#00E575] shadow-lg">
                   <span className="text-xs font-black">A</span>
                 </div>
               </div>
-            </HtmlMapMarker>
-          )}
+            </div>
+          );
+        })()}
 
-          {/* Rider B Pickup Marker (Co-Rider in Wadaage Share) */}
-          {activeRide?.coPassenger?.pickupLocation && (
-            <HtmlMapMarker
-              position={{ lat: activeRide.coPassenger.pickupLocation.lat, lng: activeRide.coPassenger.pickupLocation.lng }}
-              title={`Pickup B: ${activeRide.coPassenger.pickupLocation.name}`}
-              zIndex={55}
-            >
-              <div className="relative flex flex-col items-center">
-                <div className="px-2 py-0.5 bg-teal-950/95 border border-teal-400 text-teal-300 text-[10px] font-black rounded-md shadow-md mb-1 whitespace-nowrap">
-                  Pickup B: {activeRide.coPassenger.name.split(' ')[0]}
-                </div>
-                <div className="w-8 h-8 rounded-full bg-teal-600 border-2 border-white flex items-center justify-center text-white shadow-lg">
-                  <MapPin className="w-4 h-4" />
-                </div>
-              </div>
-            </HtmlMapMarker>
-          )}
+        {/* Live Assigned Driver Vehicle Marker (Real Car with Registered Color & Dynamic Heading) */}
+        {liveDriverPos && (() => {
+          const pt = toScreenCoord(liveDriverPos.lat, liveDriverPos.lng);
+          const vehicleColor = assignedDriver?.vehicle?.color || (assignedDriver as any)?.carColor || 'White';
+          const vehicleModel = assignedDriver?.vehicle?.model || (assignedDriver as any)?.carModel || 'Toyota Vitz';
+          const vehiclePlate = assignedDriver?.vehicle?.licensePlate || (assignedDriver as any)?.carPlate || 'SL-4921';
 
-          {/* Rider B Dropoff Marker */}
-          {activeRide?.coPassenger?.dropoffLocation && (
-            <HtmlMapMarker
-              position={{ lat: activeRide.coPassenger.dropoffLocation.lat, lng: activeRide.coPassenger.dropoffLocation.lng }}
-              title={`Dropoff B: ${activeRide.coPassenger.dropoffLocation.name}`}
-              zIndex={55}
+          return (
+            <div
+              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-all duration-300 ease-out z-25"
+              style={{ left: `${pt.x}px`, top: `${pt.y}px` }}
             >
-              <div className="relative flex flex-col items-center">
-                <div className="px-2 py-0.5 bg-teal-950/95 border border-teal-400 text-teal-300 text-[10px] font-black rounded-md shadow-md mb-1 whitespace-nowrap">
-                  Dropoff B: {activeRide.coPassenger.dropoffLocation.name.slice(0, 18)}
-                </div>
-                <div className="w-8 h-8 rounded-full bg-teal-800 border-2 border-teal-300 flex items-center justify-center text-teal-200 shadow-lg font-black text-xs">
-                  B
-                </div>
-              </div>
-            </HtmlMapMarker>
-          )}
+              <RealisticVehicleMarker
+                color={vehicleColor}
+                model={vehicleModel}
+                licensePlate={vehiclePlate}
+                driverName={assignedDriver?.name || 'Driver'}
+                heading={liveDriverPos.heading}
+                isAssigned={true}
+                showDetails={true}
+                size="lg"
+              />
+            </div>
+          );
+        })()}
 
-          {/* Mid-Route Floating Indicator Card */}
-          {pickupLocation && dropoffLocation && (
-            <HtmlMapMarker
-              position={{
-                lat: (pickupLocation.lat + dropoffLocation.lat) / 2,
-                lng: (pickupLocation.lng + dropoffLocation.lng) / 2,
-              }}
-              title="Route distance and duration"
-              zIndex={45}
+        {/* Nearby Idle Fleet Cars (Each Car in its Real Registered Color & Model) */}
+        {Array.from(
+          new Map(
+            drivers
+              .filter((d) => !assignedDriver || d.id !== assignedDriver.id)
+              .map((d) => [d.id || d.phone, d])
+          ).values()
+        ).map((driver, idx) => {
+          const dLat = driver.currentLocation?.lat ?? (driver as any).currentLat ?? 9.5600;
+          const dLng = driver.currentLocation?.lng ?? (driver as any).currentLng ?? 44.0650;
+          const pt = toScreenCoord(dLat, dLng);
+          const carColor = driver.vehicle?.color ?? (driver as any).carColor ?? (idx % 2 === 0 ? 'Blue' : 'White');
+          const carModel = driver.vehicle?.model ?? (driver as any).carModel ?? 'Toyota Vitz';
+          const carPlate = driver.vehicle?.licensePlate ?? (driver as any).carPlate ?? 'SL-4921';
+          const heading = driver.currentHeading ?? (idx * 65) % 360;
+
+          return (
+            <div
+              key={`fleet_driver_${driver.id || idx}_${idx}`}
+              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-20 hover:z-30"
+              style={{ left: `${pt.x}px`, top: `${pt.y}px` }}
             >
-              <div className="relative flex items-center space-x-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-xl shadow-xl border border-slate-200 text-slate-800 text-xs font-black whitespace-nowrap pointer-events-none select-none -translate-x-1/2 -translate-y-1/2">
+              <RealisticVehicleMarker
+                color={carColor}
+                model={carModel}
+                licensePlate={carPlate}
+                driverName={driver.name}
+                heading={heading}
+                isAssigned={false}
+                showDetails={role === 'admin'}
+                size="md"
+              />
+            </div>
+          );
+        })}
+
+        {/* Mid-Route Floating Indicator Card */}
+        {pickupLocation && dropoffLocation && (() => {
+          const midLat = (pickupLocation.lat + dropoffLocation.lat) / 2;
+          const midLng = (pickupLocation.lng + dropoffLocation.lng) / 2;
+          const pt = toScreenCoord(midLat, midLng);
+          return (
+            <div
+              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ left: `${pt.x}px`, top: `${pt.y}px` }}
+            >
+              <div className="relative flex items-center space-x-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-xl shadow-xl border border-slate-200 text-slate-800 text-xs font-black whitespace-nowrap">
                 <CarIcon className="w-4 h-4 text-slate-800 shrink-0" />
                 <span className="text-slate-900 font-black">~ {roadDistanceKm ? roadDistanceKm.toFixed(1) : '7.0'} km</span>
                 <span className="text-slate-400">•</span>
                 <span className="text-slate-700 font-bold">~ {roadDurationMins || '10'} daqiiqo</span>
               </div>
-            </HtmlMapMarker>
-          )}
+            </div>
+          );
+        })()}
+      </div>
 
-          {/* Surge Heatmap Zones (Driver / Admin View) */}
-          {showSurgeHeatmap && [
-            { name: 'Central Market', lat: 9.5600, lng: 44.0650, surge: '1.6x', color: '#ef4444' },
-            { name: 'Jigjiga Yar', lat: 9.5680, lng: 44.0780, surge: '1.4x', color: '#f59e0b' },
-            { name: 'Egal Airport', lat: 9.5180, lng: 44.0880, surge: '1.5x', color: '#ef4444' },
-            { name: '26 June Area', lat: 9.5750, lng: 44.0550, surge: '1.3x', color: '#10b981' },
-          ].map((zone) => (
-            <HtmlMapMarker key={zone.name} position={{ lat: zone.lat, lng: zone.lng }} title={`Surge ${zone.name}`} zIndex={20}>
-              <div className="relative flex flex-col items-center pointer-events-none">
-                <div
-                  className="w-20 h-20 rounded-full animate-pulse opacity-30 border-2"
-                  style={{ backgroundColor: zone.color, borderColor: zone.color }}
-                />
-                <div className="absolute top-6 px-1.5 py-0.5 rounded-md bg-slate-950/90 text-white text-[9px] font-black border border-slate-700 shadow flex items-center gap-1">
-                  <Sparkles className="w-2.5 h-2.5 text-amber-400" />
-                  <span>{zone.name}</span>
-                  <span className="text-amber-300">{zone.surge}</span>
-                </div>
-              </div>
-            </HtmlMapMarker>
-          ))}
+      {/* 4. Floating Map Controls (Zoom, Layers, GPS, Recenter) */}
+      <div className="absolute right-3 bottom-4 flex flex-col space-y-2 z-30 pointer-events-auto">
+        {/* Zoom In */}
+        <button
+          type="button"
+          onClick={() => setZoom((z) => Math.min(18, z + 1))}
+          className="w-10 h-10 rounded-xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 flex items-center justify-center shadow-lg hover:bg-white dark:hover:bg-slate-800 transition active:scale-95 cursor-pointer font-bold"
+          title="Zoom In"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
 
-          {/* Active Assigned Driver Traced in Real-Time */}
-          {liveDriverPos && assignedDriver && (
-            <HtmlMapMarker
-              position={{ lat: liveDriverPos.lat, lng: liveDriverPos.lng }}
-              title={`Active Driver: ${assignedDriver.name || 'Driver'}`}
-              zIndex={60}
-            >
-              <div className="flex flex-col items-center cursor-pointer group animate-fadeIn">
-                {role === 'admin' && (
-                  <div className="px-2 py-0.5 bg-emerald-950/95 border border-emerald-400 text-emerald-300 text-[10px] font-black rounded-lg shadow-lg mb-1 whitespace-nowrap flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    <span>{(assignedDriver.name || 'Driver').split(' ')[0]} (Live)</span>
-                  </div>
-                )}
-                <div
-                  className="w-9 h-9 rounded-full bg-slate-950 border-2 border-emerald-400 flex items-center justify-center text-emerald-400 shadow-2xl transition-transform duration-500"
-                  style={{ transform: `rotate(${liveDriverPos.heading}deg)` }}
-                >
-                  <CarIcon className="w-5 h-5" />
-                </div>
-              </div>
-            </HtmlMapMarker>
-          )}
+        {/* Zoom Out */}
+        <button
+          type="button"
+          onClick={() => setZoom((z) => Math.max(10, z - 1))}
+          className="w-10 h-10 rounded-xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 flex items-center justify-center shadow-lg hover:bg-white dark:hover:bg-slate-800 transition active:scale-95 cursor-pointer font-bold"
+          title="Zoom Out"
+        >
+          <Minus className="w-4 h-4" />
+        </button>
 
-          {/* Idle Available Nearby Fleet Drivers */}
-          {drivers
-            .filter((d) => !assignedDriver || d.id !== assignedDriver.id)
-            .map((driver) => {
-              const dLat = driver.currentLocation?.lat ?? (driver as any).currentLat ?? 9.5600;
-              const dLng = driver.currentLocation?.lng ?? (driver as any).currentLng ?? 44.0650;
-              const carPlate = driver.vehicle?.licensePlate ?? (driver as any).carPlate ?? 'HGA-101';
-
-              return (
-                <HtmlMapMarker
-                  key={driver.id}
-                  position={{ lat: dLat, lng: dLng }}
-                  title={`${driver.name || 'Driver'} (${carPlate})`}
-                  zIndex={30}
-                >
-                  <div className="flex flex-col items-center cursor-pointer group">
-                    {role === 'admin' && (
-                      <div className="px-1.5 py-0.5 bg-slate-900/90 border border-slate-700 text-slate-200 text-[9px] font-bold rounded shadow mb-0.5 whitespace-nowrap">
-                        {(driver.name || 'Driver').split(' ')[0]} ({carPlate})
-                      </div>
-                    )}
-                    <div className="w-7 h-7 rounded-full bg-[#021820] border-2 border-[#00E575] flex items-center justify-center text-[#00E575] shadow-lg group-hover:scale-110 transition">
-                      <CarIcon className="w-3.5 h-3.5" />
-                    </div>
-                  </div>
-                </HtmlMapMarker>
-              );
-            })}
-        </Map>
-
-      {/* Floating Essential Google Map Controls */}
-      <div className="absolute right-3 bottom-4 flex flex-col space-y-2 z-30">
+        {/* Locate GPS */}
         <button
           type="button"
           onClick={handleCenterGPS}
@@ -737,110 +620,26 @@ const GoogleMapRenderer: React.FC<GoogleInteractiveMapProps> = ({
           <Crosshair className={`w-5 h-5 ${isCenteringGPS ? 'animate-spin text-amber-500' : ''}`} />
         </button>
 
+        {/* Recenter Bounds */}
         <button
           type="button"
-          onClick={handleRecenterBounds}
+          onClick={handleFitBounds}
           className="w-10 h-10 rounded-xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-lg hover:bg-white dark:hover:bg-slate-800 transition active:scale-95 font-black text-xs cursor-pointer"
-          title="Fit Route / Fleet to View"
+          title="Fit Route to View"
         >
           <Compass className="w-5 h-5" />
         </button>
 
+        {/* Layer Switcher */}
         <button
           type="button"
-          onClick={() => setMapTypeId((prev) => (prev === 'roadmap' ? 'hybrid' : 'roadmap'))}
+          onClick={() => setMapLayer((l) => (l === 'roadmap' ? 'satellite' : l === 'satellite' ? 'dark' : 'roadmap'))}
           className="w-10 h-10 rounded-xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-lg hover:bg-white dark:hover:bg-slate-800 transition active:scale-95 text-xs font-bold cursor-pointer"
-          title="Toggle Satellite Imagery"
+          title={`Layer: ${mapLayer}`}
         >
           <Layers className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
         </button>
-
-        <button
-          type="button"
-          onClick={() => setShowTraffic((prev) => !prev)}
-          className={`w-10 h-10 rounded-xl backdrop-blur-md border flex items-center justify-center shadow-lg transition active:scale-95 cursor-pointer ${
-            showTraffic
-              ? 'bg-[#00E575] text-slate-950 border-[#00E575]'
-              : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/80 hover:bg-white dark:hover:bg-slate-800'
-          }`}
-          title={showTraffic ? 'Live Traffic: ON' : 'Live Traffic: OFF'}
-        >
-          <Navigation className="w-4 h-4" />
-        </button>
       </div>
     </div>
-  );
-};
-
-export const GoogleInteractiveMap: React.FC<GoogleInteractiveMapProps> = (props) => {
-  const [loadError, setLoadError] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const host = window.location.hostname;
-    // If running on Google Cloud Run preview domain without referrer whitelist, avoid throwing RefererNotAllowedMapError
-    const isUnwhitelistedPreviewDomain = host.includes('run.app') && !host.includes('wadaage.com');
-    return Boolean((window as any).__googleMapsAuthFailed) || isUnwhitelistedPreviewDomain;
-  });
-
-  useEffect(() => {
-    // 1. Listen for Google Maps auth failure callback or custom event
-    const handleAuthFailure = () => {
-      console.warn('Google Maps API authentication/load failed. Falling back to MapLibre.');
-      if (typeof window !== 'undefined') {
-        (window as any).__googleMapsAuthFailed = true;
-      }
-      setLoadError(true);
-    };
-
-    (window as any).gm_authFailure = handleAuthFailure;
-    window.addEventListener('google-maps-auth-failure', handleAuthFailure);
-
-    // 2. Hide Google error modal dialog overlay if inserted into DOM
-    const styleEl = document.createElement('style');
-    styleEl.innerHTML = `
-      .gm-err-container, .gm-err-modal, .gm-err-content, .gm-style-moc {
-        display: none !important;
-        opacity: 0 !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
-    `;
-    document.head.appendChild(styleEl);
-
-    // 3. Monitor DOM for Google error dialogs
-    const observer = new MutationObserver(() => {
-      const errModal = document.querySelector('.gm-err-container, .gm-err-modal, .gm-err-content');
-      if (errModal) {
-        console.warn('Google Maps error container detected in DOM. Triggering fallback to MapLibre.');
-        handleAuthFailure();
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      window.removeEventListener('google-maps-auth-failure', handleAuthFailure);
-      observer.disconnect();
-      if (styleEl.parentNode) {
-        styleEl.parentNode.removeChild(styleEl);
-      }
-    };
-  }, []);
-
-  if (!GOOGLE_MAPS_KEY || loadError) {
-    return <MapLibreInteractiveMap {...props} />;
-  }
-
-  return (
-    <MapErrorBoundary fallback={<MapLibreInteractiveMap {...props} />}>
-      <APIProvider
-        apiKey={GOOGLE_MAPS_KEY}
-        libraries={['places', 'geometry']}
-        onError={(err) => {
-          console.warn('APIProvider onError caught:', err);
-          setLoadError(true);
-        }}
-      >
-        <GoogleMapRenderer {...props} />
-      </APIProvider>
-    </MapErrorBoundary>
   );
 };

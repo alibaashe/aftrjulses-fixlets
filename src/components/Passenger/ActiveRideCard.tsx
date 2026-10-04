@@ -33,6 +33,8 @@ import { CallDriverModal } from './CallDriverModal';
 import { ChatModal } from './ChatModal';
 import { ShareTripModal } from './ShareTripModal';
 import { ColorBeaconModal } from '../Common/ColorBeaconModal';
+import { RealisticCarGraphic } from '../Common/RealisticCarGraphic';
+import { resolveVehicleColor } from '../../utils/vehicleColors';
 
 interface ActiveRideCardProps {
   onOpenSafetyModal: () => void;
@@ -149,8 +151,14 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
                     ★ {assignedDriver.rating}
                   </span>
                 </div>
-                <div className="text-[10px] text-slate-500 font-medium truncate">
-                  {assignedDriver.vehicle.model} • <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{assignedDriver.vehicle.licensePlate}</span>
+                <div className="text-[10px] text-slate-500 font-medium truncate flex items-center gap-1">
+                  <span
+                    className="w-2 h-2 rounded-full inline-block border border-black/30 shrink-0"
+                    style={{ backgroundColor: resolveVehicleColor(assignedDriver.vehicle.color).hex }}
+                  />
+                  <span>{assignedDriver.vehicle.model} ({assignedDriver.vehicle.color})</span>
+                  <span>•</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{assignedDriver.vehicle.licensePlate}</span>
                 </div>
               </div>
             </div>
@@ -459,54 +467,89 @@ export const ActiveRideCard: React.FC<ActiveRideCardProps> = ({ onOpenSafetyModa
                 <span>Open Beacon</span>
               </button>
             </div>
-            <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <img
-                  src={assignedDriver.avatar}
-                  alt={assignedDriver.name}
-                  className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500 shadow-sm"
-                />
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                      {assignedDriver.name}
-                    </h3>
-                    <span className="flex items-center text-xs text-amber-500 font-bold bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                      <Star className="w-3 h-3 fill-amber-400 mr-0.5" />
-                      {assignedDriver.rating}
+            <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-md space-y-3">
+              {/* Top Row: Driver Profile & Actions */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <img
+                    src={assignedDriver.avatar}
+                    alt={assignedDriver.name}
+                    className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500 shadow-sm"
+                  />
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                        {assignedDriver.name}
+                      </h3>
+                      <span className="flex items-center text-xs text-amber-500 font-bold bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                        <Star className="w-3 h-3 fill-amber-400 mr-0.5" />
+                        {assignedDriver.rating}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Wadaage Verified Captain
                     </span>
                   </div>
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    {assignedDriver.vehicle.model} ({assignedDriver.vehicle.color})
-                  </p>
-                  <div className="inline-block mt-1 bg-slate-900 text-emerald-400 font-mono font-black text-xs px-2 py-0.5 rounded tracking-wider border border-slate-700">
-                    {assignedDriver.vehicle.licensePlate}
-                  </div>
+                </div>
+
+                {/* Action Buttons: Chat & Call */}
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setShowChat(true)}
+                    className="relative p-2.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition-all shadow-md font-bold text-xs flex items-center space-x-1.5 active:scale-95"
+                    title="Open Chat"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span className="hidden sm:inline">Chat</span>
+                    {unreadChatCount > 0 && (
+                      <span className="w-4 h-4 bg-red-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-pulse">
+                        {unreadChatCount}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setShowCall(true)}
+                    className="p-2.5 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all text-xs font-bold flex items-center space-x-1 active:scale-95"
+                    title="Call Driver"
+                  >
+                    <PhoneCall className="w-4 h-4 text-emerald-400" />
+                  </button>
                 </div>
               </div>
 
-              {/* Action Buttons: Chat & Call */}
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setShowChat(true)}
-                  className="relative p-2.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition-all shadow-md font-bold text-xs flex items-center space-x-1.5 active:scale-95"
-                  title="Open Chat"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  <span className="hidden sm:inline">Chat</span>
-                  {unreadChatCount > 0 && (
-                    <span className="w-4 h-4 bg-red-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-pulse">
-                      {unreadChatCount}
+              {/* Bottom Row: Real Vehicle Visual Card with Exact Registered Color */}
+              <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-950 rounded-xl border border-slate-800 flex items-center justify-between text-white shadow-inner">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-1.5">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full inline-block border border-white/40 shadow-xs"
+                      style={{ backgroundColor: resolveVehicleColor(assignedDriver.vehicle.color).hex }}
+                    />
+                    <span className="text-xs font-black text-white">
+                      {assignedDriver.vehicle.model}
                     </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setShowCall(true)}
-                  className="p-2.5 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all text-xs font-bold flex items-center space-x-1"
-                  title="Call Driver"
-                >
-                  <PhoneCall className="w-4 h-4 text-emerald-400" />
-                </button>
+                    <span className="text-slate-400 text-[10px] font-bold">
+                      ({resolveVehicleColor(assignedDriver.vehicle.color).somaliName})
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <span className="bg-slate-800 text-emerald-400 font-mono font-black text-xs px-2 py-0.5 rounded tracking-wider border border-slate-700">
+                      {assignedDriver.vehicle.licensePlate}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-semibold">
+                      Midabka: <b className="text-slate-200">{assignedDriver.vehicle.color}</b>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="shrink-0 pl-2">
+                  <RealisticCarGraphic
+                    color={assignedDriver.vehicle.color}
+                    model={assignedDriver.vehicle.model}
+                    className="w-20 h-11"
+                  />
+                </div>
               </div>
             </div>
 

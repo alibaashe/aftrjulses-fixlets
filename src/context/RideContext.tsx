@@ -3550,7 +3550,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Shared rides start with coPassenger unset until a real matching co-rider orders
     const coPass: SharedCoPassenger | undefined = undefined;
 
-    const generatedOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
     // Mock driver bids for Book by Bid mode (filtered for gender preference if active)
     const availableDriversForBids = genderPreference === 'female_only'
@@ -4054,7 +4054,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       headingDegrees: calculateBearing(pickupB, dropoffB),
       status: 'searching',
       requestedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      otpCode: Math.floor(1000 + Math.random() * 9000).toString(),
+      otpCode: Math.floor(100000 + Math.random() * 900000).toString(),
     };
 
     sounds.playIncomingPing();
@@ -5706,68 +5706,6 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem('wadaage_current_ride');
     } catch (_e) {}
   };
-
-  // Live driver position movement loop along the map when a ride is active
-  useEffect(() => {
-    if (!currentRide || !['accepted', 'driver_arrived', 'in_progress'].includes(currentRide.status)) return;
-
-    const interval = setInterval(() => {
-      setDrivers((prevDrivers) => {
-        let updatedDriverObj: Driver | null = null;
-        const newDrivers = prevDrivers.map((driver) => {
-          if (driver.id === (currentRide.assignedDriverId || currentUser?.id)) {
-            const targetLoc =
-              currentRide.status === 'in_progress'
-                ? currentRide.dropoff
-                : currentRide.pickup;
-
-            const latDiff = targetLoc.lat - driver.currentLocation.lat;
-            const lngDiff = targetLoc.lng - driver.currentLocation.lng;
-
-            // Move smoothly towards target waypoint
-            if (Math.abs(latDiff) > 0.00005 || Math.abs(lngDiff) > 0.00005) {
-              const newLat = Number((driver.currentLocation.lat + latDiff * 0.14).toFixed(6));
-              const newLng = Number((driver.currentLocation.lng + lngDiff * 0.14).toFixed(6));
-              const updated: Driver = {
-                ...driver,
-                currentLocation: {
-                  lat: newLat,
-                  lng: newLng,
-                },
-              };
-              updatedDriverObj = updated;
-              return updated;
-            }
-          }
-          return driver;
-        });
-
-        if (updatedDriverObj) {
-          const payload = {
-            id: (updatedDriverObj as Driver).id,
-            name: (updatedDriverObj as Driver).name,
-            phone: (updatedDriverObj as Driver).phone,
-            lat: (updatedDriverObj as Driver).currentLocation.lat,
-            lng: (updatedDriverObj as Driver).currentLocation.lng,
-            status: (updatedDriverObj as Driver).status,
-          };
-          broadcastRideEvent('DRIVER_LOCATION', payload);
-          try {
-            fetch(getApiUrl('/api/drivers/location'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            }).catch(() => {});
-            saveDriverToFirestore(updatedDriverObj as Driver);
-          } catch (_e) {}
-        }
-
-        return newDrivers;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [currentRide?.id, currentRide?.status, currentRide?.assignedDriverId, currentRide?.pickup?.lat, currentRide?.pickup?.lng, currentRide?.dropoff?.lat, currentRide?.dropoff?.lng]);
 
   // WebRTC In-App Voice Calling
   const [activeCallSession, setActiveCallSession] = useState<VoiceCallSession | null>(null);

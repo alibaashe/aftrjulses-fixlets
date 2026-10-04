@@ -43,7 +43,7 @@ export const INITIAL_DRIVERS: Driver[] = [
     currentHeading: 45,
     vehicle: {
       model: 'Toyota Vitz',
-      color: 'White',
+      color: 'Blue',
       licensePlate: 'SL-4921',
       category: 'wadaage_both',
       capacity: 4,
@@ -99,7 +99,7 @@ export const INITIAL_DRIVERS: Driver[] = [
     currentHeading: 270,
     vehicle: {
       model: 'Toyota Probox',
-      color: 'White',
+      color: 'Silver',
       licensePlate: 'SL-3392',
       category: 'wadaage_share',
       capacity: 4,
@@ -127,7 +127,7 @@ export const INITIAL_DRIVERS: Driver[] = [
     currentHeading: 180,
     vehicle: {
       model: 'Toyota Ractis',
-      color: 'White',
+      color: 'Black',
       licensePlate: 'SL-8105',
       category: 'wadaage_both',
       capacity: 4,

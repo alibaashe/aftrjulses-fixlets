@@ -24,6 +24,8 @@ import { useRide } from '../../context/RideContext';
 import { VehicleCategory } from '../../types';
 import { SomalilandFlag } from '../Common/SomalilandFlag';
 import { isPhoneMatch, normalizeSomalilandPhone } from '../../utils/security';
+import { POPULAR_VEHICLE_COLORS, POPULAR_SOMALILAND_CAR_MODELS } from '../../utils/vehicleColors';
+import { RealisticCarGraphic } from '../Common/RealisticCarGraphic';
 
 interface DriverRegistrationModalProps {
   isOpen: boolean;
@@ -595,6 +597,7 @@ export const DriverRegistrationModal: React.FC<DriverRegistrationModalProps> = (
                   <span className="text-[10px] text-amber-600 font-bold">Step 4 of 4</span>
                 </div>
 
+                {/* Wadaage Service Category */}
                 <div>
                   <label className="block text-slate-600 dark:text-slate-400 mb-1 font-bold">Wadaage Service Category*</label>
                   <select
@@ -608,29 +611,115 @@ export const DriverRegistrationModal: React.FC<DriverRegistrationModalProps> = (
                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-bold">Make & Model*</label>
+                {/* Make & Model with Quick Presets */}
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 mb-1 font-bold">Model-ka Gaadhiga (Car Model)*</label>
+                  <div className="space-y-1.5">
                     <input
                       type="text"
                       required
                       value={formData.model}
                       onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                      placeholder="e.g. Toyota Probox 2021"
+                      placeholder="e.g. Toyota Vitz, Corolla Fielder, Probox..."
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white font-semibold outline-none focus:border-amber-500"
                     />
+                    <div className="flex flex-wrap gap-1.5">
+                      {POPULAR_SOMALILAND_CAR_MODELS.slice(0, 6).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, model: m })}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
+                            formData.model.toLowerCase().includes(m.toLowerCase())
+                              ? 'bg-amber-400 text-slate-950 border-amber-500 font-black shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                          }`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-bold">Plate Number*</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.licensePlate}
-                      onChange={(e) => setFormData({ ...formData, licensePlate: e.target.value })}
-                      placeholder="e.g. SL-77890-A"
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-amber-500 uppercase"
-                    />
+                </div>
+
+                {/* Real Car Color Selector (Midabka Gaadhiga) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-600 dark:text-slate-400 font-bold">Midabka Gaadhiga (Real Car Color)*</label>
+                    <span className="text-[10px] font-extrabold text-amber-600 dark:text-amber-400 uppercase">
+                      Selected: {formData.color || 'White (Cadaan)'}
+                    </span>
                   </div>
+
+                  {/* Visual Color Swatches */}
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 mb-2">
+                    {POPULAR_VEHICLE_COLORS.slice(0, 8).map((c) => {
+                      const isSelected = (formData.color || 'White').toLowerCase().includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, color: c.name })}
+                          className={`flex flex-col items-center p-1.5 rounded-xl border transition ${
+                            isSelected
+                              ? 'border-amber-500 bg-amber-500/10 ring-2 ring-amber-400 shadow-md'
+                              : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-slate-400'
+                          }`}
+                          title={`${c.name} (${c.somaliName})`}
+                        >
+                          <span
+                            className="w-5 h-5 rounded-full border border-black/20 shadow-xs mb-1"
+                            style={{ backgroundColor: c.hex }}
+                          />
+                          <span className="text-[9px] font-bold text-slate-700 dark:text-slate-200 truncate w-full text-center">
+                            {c.somaliName.split(' ')[0]}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <input
+                    type="text"
+                    value={formData.color}
+                    onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                    placeholder="ama qor midab kale (e.g. Blue, White, Silver, Black, Red)..."
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white font-semibold outline-none focus:border-amber-500 text-xs"
+                  />
+                </div>
+
+                {/* Live Real Car Visual Graphic Preview */}
+                <div className="p-3 bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between shadow-inner">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-mono uppercase tracking-wider text-emerald-400 font-bold block">
+                      Live Vehicle Visual Preview
+                    </span>
+                    <h5 className="text-white font-black text-sm">{formData.model || 'Toyota Vitz'}</h5>
+                    <p className="text-slate-400 text-[11px] font-semibold flex items-center gap-1.5">
+                      <span>Midabka:</span>
+                      <span className="text-amber-400 font-bold">{formData.color || 'White (Cadaan)'}</span>
+                      <span>•</span>
+                      <span className="font-mono text-slate-300">{formData.licensePlate || 'SL-4921'}</span>
+                    </p>
+                  </div>
+                  <RealisticCarGraphic
+                    color={formData.color || 'White'}
+                    model={formData.model || 'Toyota Vitz'}
+                    className="w-24 h-14"
+                  />
+                </div>
+
+                {/* Plate Number */}
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 mb-1 font-bold">Taargada Gaadhiga (Plate Number)*</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.licensePlate}
+                    onChange={(e) => setFormData({ ...formData, licensePlate: e.target.value })}
+                    placeholder="e.g. SL-77890-A"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-amber-500 uppercase"
+                  />
                 </div>
 
                 <div>

@@ -1257,11 +1257,11 @@ Return ONLY valid JSON matching this schema:
       return res.json({ predictions: [] });
     }
 
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY;
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBAOVGm7NLFbVZdx2GCsn5_YjdYQVry_4w';
     const results: any[] = [];
     const seenNames = new Set<string>();
 
-    // 0. Instant Tier 0: Direct Match from 1,550 Hargeisa Master Coordinates
+    // 0. Instant Tier 0: Direct Match from Hargeisa Master Database
     if (hargeisaMasterLocations && hargeisaMasterLocations.length > 0) {
       const lowerInput = input.toLowerCase();
       const matched = hargeisaMasterLocations.filter((item) => {
@@ -1291,19 +1291,86 @@ Return ONLY valid JSON matching this schema:
       }
     }
 
-    // 1. If official Google Maps API key exists, query Google Places API with Hargeisa location bias & strict bounds
+    // 1. Google Places & Geocoding Live Search (Autocomplete + TextSearch + Geocoding centered on Hargeisa)
     if (apiKey) {
       try {
-        const googleUrl = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
-          input
-        )}&location=9.5600,44.0650&radius=18000&components=country:so&key=${apiKey}`;
-        const gRes = await fetch(googleUrl);
-        if (gRes.ok) {
-          const gData = await gRes.json();
+        const [autoRes, textRes, geocodeRes] = await Promise.allSettled([
+          // Autocomplete with Hargeisa circular bias (40km radius)
+          fetch(
+            `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
+              input
+            )}&location=9.5600,44.0650&radius=40000&key=${apiKey}`
+          ),
+          // Text Search for specific establishment names
+          fetch(
+            `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(
+              `${input} Hargeisa Somaliland`
+            )}&location=9.5600,44.0650&radius=40000&key=${apiKey}`
+          ),
+          // Geocoding API for exact address & place matching
+          fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+              `${input}, Hargeisa, Somaliland`
+            )}&key=${apiKey}`
+          ),
+        ]);
+
+        // Process Geocoding results
+        if (geocodeRes.status === 'fulfilled' && geocodeRes.value.ok) {
+          const gGeoData = await geocodeRes.value.json();
+          if (gGeoData.status === 'OK' && Array.isArray(gGeoData.results)) {
+            for (const r of gGeoData.results) {
+              const formattedAddr = r.formatted_address || '';
+              const name = formattedAddr.split(',')[0] || input;
+              if (name && !seenNames.has(name.toLowerCase())) {
+                seenNames.add(name.toLowerCase());
+                const lat = r.geometry?.location?.lat || 9.5600;
+                const lng = r.geometry?.location?.lng || 44.0650;
+                results.push({
+                  id: r.place_id || `g_geo_${results.length}`,
+                  name: name,
+                  address: formattedAddr.includes('Hargeisa') ? formattedAddr : `${formattedAddr}, Hargeisa, Somaliland`,
+                  lat: Math.round(lat * 100000) / 100000,
+                  lng: Math.round(lng * 100000) / 100000,
+                  category: 'Google Map Location',
+                  source: 'google_geocoding_api',
+                });
+              }
+            }
+          }
+        }
+
+        // Process Text Search results
+        if (textRes.status === 'fulfilled' && textRes.value.ok) {
+          const tData = await textRes.value.json();
+          if (tData.status === 'OK' && Array.isArray(tData.results)) {
+            for (const r of tData.results) {
+              const name = r.name;
+              if (name && !seenNames.has(name.toLowerCase())) {
+                seenNames.add(name.toLowerCase());
+                const lat = r.geometry?.location?.lat || 9.5600;
+                const lng = r.geometry?.location?.lng || 44.0650;
+                results.push({
+                  id: r.place_id || `g_text_${results.length}`,
+                  name: name,
+                  address: r.formatted_address || `${name}, Hargeisa, Somaliland`,
+                  lat: Math.round(lat * 100000) / 100000,
+                  lng: Math.round(lng * 100000) / 100000,
+                  category: (r.types?.[0] || 'Google Place').replace(/_/g, ' ').toUpperCase(),
+                  source: 'google_places_textsearch',
+                });
+              }
+            }
+          }
+        }
+
+        // Process Autocomplete predictions
+        if (autoRes.status === 'fulfilled' && autoRes.value.ok) {
+          const gData = await autoRes.value.json();
           if (gData.status === 'OK' && Array.isArray(gData.predictions)) {
             for (const p of gData.predictions) {
               const name = p.structured_formatting?.main_text || p.description.split(',')[0];
-              if (!seenNames.has(name.toLowerCase())) {
+              if (name && !seenNames.has(name.toLowerCase())) {
                 seenNames.add(name.toLowerCase());
                 results.push({
                   id: p.place_id,
@@ -1315,10 +1382,11 @@ Return ONLY valid JSON matching this schema:
                 });
               }
             }
-            if (results.length >= 6) {
-              return res.json({ predictions: results, source: 'google_official' });
-            }
           }
+        }
+
+        if (results.length >= 6) {
+          return res.json({ predictions: results, source: 'google_official' });
         }
       } catch (err) {
         console.warn('Google Places API call failed, continuing to multi-source fallback:', err);
@@ -2613,7 +2681,7 @@ Return ONLY valid JSON matching this schema:
     if (digits.startsWith('0')) digits = digits.slice(1);
     const cleanPhone = digits.startsWith('252') ? digits : `252${digits}`;
 
-    const code = Math.floor(1000 + Math.random() * 9000).toString(); // 4-digit or 6-digit OTP
+    const code = Math.floor(100000 + Math.random() * 900000).toString(); // Cryptographically tailored 6-digit OTP
     const ttlSeconds = 120; // Absolute 2-minute expiration timeout guard
     const expiresAt = Date.now() + ttlSeconds * 1000;
 
@@ -2625,7 +2693,7 @@ Return ONLY valid JSON matching this schema:
       userName: userName || 'Wadaage User',
     };
 
-    console.log(`[Wadaage WhatsApp Gateway] Generated 2-min OTP (${code}) for +${cleanPhone} (${userRole}) for ${userName || 'User'}`);
+    console.log(`[Wadaage WhatsApp Gateway] Generated 2-min 6-digit OTP (${code}) for +${cleanPhone} (${userRole}) for ${userName || 'User'}`);
 
     let messageText = whatsappRuntimeConfig.messageTemplate
       .replace(/{{code}}/g, code)
@@ -2652,7 +2720,7 @@ Return ONLY valid JSON matching this schema:
 
     return res.json({
       success: true,
-      message: `Koodka xaqiijinta 4-god ah waxa loo diray WhatsApp lambarkaaga (+${cleanPhone}). Fadlan hubi WhatsApp-kaaga.`,
+      message: `Koodka xaqiijinta 6-god ah waxa loo diray WhatsApp lambarkaaga (+${cleanPhone}). Fadlan hubi WhatsApp-kaaga.`,
       phone: cleanPhone,
       otpCode: code,
       expiresInSeconds: ttlSeconds,

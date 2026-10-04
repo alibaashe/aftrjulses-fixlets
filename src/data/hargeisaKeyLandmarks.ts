@@ -930,6 +930,51 @@ export const HARGEISA_VERIFIED_LANDMARKS: HargeisaPlace[] = [
   // 7. SUPERMARKETS & SHOPPING MALLS (Suuqyada & Malls)
   // ==========================================
   {
+    id: 'mall_rugsan_center',
+    name: 'Rugsan Mall & Shopping Complex (Suuqa Rugsan)',
+    address: 'Rugsan Center, 26 June & Jigjiga-Yar Corridor, Hargeisa',
+    lat: 9.5675,
+    lng: 44.0720,
+    category: 'Mall',
+    subCategory: 'shopping_mall',
+    district: '26 June District',
+    popular: true,
+    iconName: 'ShoppingBag',
+    generalCategory: 'Market',
+    somaliCategory: 'Suuqyada & Xarumaha Ganacsiga',
+    searchTerms: ['rugsan', 'rugsan mall', 'suuqa rugsan', 'rugsan shopping', 'rugsan center', 'mall', 'shopping']
+  },
+  {
+    id: 'hotel_rugsan_residence',
+    name: 'Rugsan Hotel & Suites (Huteelka Rugsan)',
+    address: 'Jigjiga-Yar Road, Hargeisa, Somaliland',
+    lat: 9.5690,
+    lng: 44.0745,
+    category: 'Hotel',
+    subCategory: 'hotel',
+    district: 'Jigjiga Yar',
+    popular: true,
+    iconName: 'Hotel',
+    generalCategory: 'Hotel',
+    somaliCategory: 'Huteellada & Jiifka',
+    searchTerms: ['rugsan hotel', 'huteelka rugsan', 'rugsan', 'hotel rugsan', 'residence']
+  },
+  {
+    id: 'supermarket_rugsan_hyper',
+    name: 'Rugsan Supermarket & Hypermarket',
+    address: 'Rugsan Plaza, Road 2 Corridor, Hargeisa',
+    lat: 9.5668,
+    lng: 44.0712,
+    category: 'Supermarket',
+    subCategory: 'supermarket',
+    district: '26 June District',
+    popular: true,
+    iconName: 'ShoppingBag',
+    generalCategory: 'Market',
+    somaliCategory: 'Suuqyada & Xarumaha Ganacsiga',
+    searchTerms: ['rugsan supermarket', 'supermarket rugsan', 'rugsan hypermarket', 'rugsan']
+  },
+  {
     id: 'mall_dahabshiil_center',
     name: 'Dahabshiil Business Center & Supermarket',
     address: 'Road 1 & Downtown Square, Hargeisa',
