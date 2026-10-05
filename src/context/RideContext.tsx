@@ -738,6 +738,9 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     detectUserRealLocation();
   }, [detectUserRealLocation]);
 
+  // Ref to store last recorded GPS coordinate for standing live taximeter distance calculation
+  const lastTaximeterCoordRef = useRef<{ lat: number; lng: number } | null>(null);
+
   // Update Driver Live Coordinates with Telematics broadcast
   const updateDriverLiveCoordinates = useCallback((
     lat: number,
@@ -762,6 +765,25 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
       permissionState: 'granted',
       source: isHardware ? 'gps' : 'simulated',
     });
+
+    // Auto-accumulate live distance traveled for active Standing Taximeter rides
+    if (currentRide && currentRide.status === 'in_progress' && (currentRide.isLiveTaximeter || currentRide.categoryName?.includes('Standing') || currentRide.passengerName?.includes('Standing'))) {
+      if (lastTaximeterCoordRef.current) {
+        const distKm = calculateHaversineDistanceKm(
+          lastTaximeterCoordRef.current.lat,
+          lastTaximeterCoordRef.current.lng,
+          latFixed,
+          lngFixed
+        );
+        // Only accumulate if driver actually moved at least 0.005 km (5 meters) to avoid stationary GPS noise
+        if (distKm >= 0.005 && distKm <= 0.5) {
+          updateTaximeterTraveledKm(distKm);
+        }
+      }
+      lastTaximeterCoordRef.current = { lat: latFixed, lng: lngFixed };
+    } else {
+      lastTaximeterCoordRef.current = { lat: latFixed, lng: lngFixed };
+    }
 
     setRealUserLocation((prev) => ({
       id: 'user_real_location',
